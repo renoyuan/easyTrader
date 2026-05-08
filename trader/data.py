@@ -14,9 +14,23 @@ plt.rcParams["axes.unicode_minus"] = False    # 解决负号显示异常
 # 配置代理（中国大陆用户必需）[1,6](@ref)
 proxy_config = "http://127.0.0.1:10809"  # 替换为实际代理地址
 stock_code = "000001.SZ"
-start_time = "2020-01-01"
-start_time = "2023-01-01"
+start_time = "2025-01-01"
+end_time = "2025-05-23"
 
+class Data:
+    pass
+# 获取数据
+# 绘制图表 输出图表 每日推送 预测走势接入模型 收益对比 表格模板
+def get_data():
+    pass
+def draw_plot():
+    pass
+def send_email():
+    pass
+def predict():
+    pass
+def gen_table():
+    pass
 def get_data_analysis():
 
     # 数据获取（上证指数正确代码为000001.SS）[6,7](@ref)
@@ -24,11 +38,11 @@ def get_data_analysis():
         data = yf.download(
             stock_code,  # 上证指数正确代码
             start=start_time,
-            end=start_time,
-            auto_adjust=True,
+            end=end_time,
+
 
         )
-
+        print("data", data)
         # 空数据校验[2](@ref)
         if data.empty:
             raise ValueError("数据下载失败，请检查代码或网络连接")
@@ -107,10 +121,10 @@ def gen_trading_day(start_time="2025-05-21", direction="end", gap=22):
 
         # 生成初始交易日序列
         if direction == "start":
-            trading_series = pd.bdate_range(start=start_time, periods=periods, freq=business_day_offset)
+            trading_series = pd.bdate_range(start=start_time, periods=periods, freq=business_day_offset, proxy="http://127.0.0.1:7890")
             target_index = -1
         else:
-            trading_series = pd.bdate_range(end=start_time, periods=periods, freq=business_day_offset)
+            trading_series = pd.bdate_range(end=start_time, periods=periods, freq=business_day_offset, proxy="http://127.0.0.1:7890")
             target_index = 0
 
         # 检测节假日
@@ -146,7 +160,8 @@ def judge_holiday(date):
         print(f"{target_date} 是节假日：{holiday_name}（{'休息日' if is_off_day else '调休工作日'}）")
         return True
 # judge_holiday("2025-05-01")
-print(gen_trading_day(start_time = "2025-05-21",direction="end",gap=22))
+# print(gen_trading_day(start_time = "2025-05-21",direction="end",gap=22))
+get_data_analysis()
 
 
 
