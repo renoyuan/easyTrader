@@ -2,7 +2,15 @@
 import sqlite3
 import pandas as pd
 import numpy as np
-from .db_path import get_db_path
+import sys
+import os
+cur_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(cur_dir)
+try:
+    from db_path import get_db_path
+except ImportError:
+    # 兼容包内导入
+    from .db_path import get_db_path
 
 class BuffettScorer:
     """
@@ -35,6 +43,17 @@ class BuffettScorer:
         df2['year'] = df['year'].values
         return df2
 
+    def get_col(self, df, keys, default=np.nan):
+        """
+        尝试从df中获取第一个存在的字段，keys可以是str或list
+        """
+        if isinstance(keys, str):
+            keys = [keys]
+        for k in keys:
+            if k in df.columns:
+                return df[k]
+        return pd.Series([default]*len(df))
+
     def score(self, code, years=5):
         # 1. 盈利能力
         income = self.get_financials(code, 'income', years)
@@ -42,19 +61,30 @@ class BuffettScorer:
         cashflow = self.get_financials(code, 'cashflow', years)
         if income.empty or balance.empty or cashflow.empty:
             return None
+        # 字段兼容映射
+        col_map = {
+            '净利润': ['净利润', '归属于母公司股东的净利润', '净利润(元)'],
+            '营业总收入': ['营业总收入', '营业收入', '营业收入(元)'],
+            '归属于母公司股东权益合计': ['归属于母公司股东权益合计', '归属于母公司股东的权益合计', '所有者权益(或股东权益)合计'],
+            '负债合计': ['负债合计', '负债总计'],
+            '资产总计': ['资产总计', '资产合计'],
+            '流动资产合计': ['流动资产合计', '流动资产总计'],
+            '流动负债合计': ['流动负债合计', '流动负债总计'],
+            '经营活动产生的现金流量净额': ['经营活动产生的现金流量净额', '经营活动现金流量净额'],
+        }
         # ROE
-        roe = (income['净利润'] / balance['归属于母公司股东权益合计']).mean()
+        roe = (self.get_col(income, col_map['净利润']) / self.get_col(balance, col_map['归属于母公司股东权益合计'])).mean()
         # 净利润率
-        profit_margin = (income['净利润'] / income['营业总收入']).mean()
+        profit_margin = (self.get_col(income, col_map['净利润']) / self.get_col(income, col_map['营业总收入'])).mean()
         # 2. 负债安全
-        debt_ratio = (balance['负债合计'] / balance['资产总计']).mean()
-        current_ratio = (balance['流动资产合计'] / balance['流动负债合计']).mean()
+        debt_ratio = (self.get_col(balance, col_map['负债合计']) / self.get_col(balance, col_map['资产总计'])).mean()
+        current_ratio = (self.get_col(balance, col_map['流动资产合计']) / self.get_col(balance, col_map['流动负债合计'])).mean()
         # 3. 现金流
-        ocf_ratio = (cashflow['经营活动产生的现金流量净额'] / income['净利润']).mean()
+        ocf_ratio = (self.get_col(cashflow, col_map['经营活动产生的现金流量净额']) / self.get_col(income, col_map['净利润'])).mean()
         # 4. 增长性
-        revenue_growth = income['营业总收入'].pct_change().mean()
-        profit_growth = income['净利润'].pct_change().mean()
-        equity_growth = balance['归属于母公司股东权益合计'].pct_change().mean()
+        revenue_growth = self.get_col(income, col_map['营业总收入']).pct_change().mean()
+        profit_growth = self.get_col(income, col_map['净利润']).pct_change().mean()
+        equity_growth = self.get_col(balance, col_map['归属于母公司股东权益合计']).pct_change().mean()
         # 5. 综合打分（0-100）
         score = 0
         # 盈利能力
