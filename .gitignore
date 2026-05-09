@@ -1,3 +1,5 @@
+# 本地敏感信息配置文件
+.env.local
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -159,3 +161,6 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 .idea/
+stock_data.sqlite
+stock_data.sqlite-shm
+stock_data.sqlite-wal
