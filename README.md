@@ -1,6 +1,7 @@
 ## AI分析与GUI界面
 
 ### AI分析（trader/ai_model.py）
+
 示例：使用线性回归模型预测股票收盘价。
 
 ```python
@@ -14,6 +15,7 @@ print(preds)
 ```
 
 ### GUI界面（trader/gui_app.py）
+
 直接运行即可启动图形界面，支持加载CSV数据并进行AI分析：
 
 ```bash
@@ -21,9 +23,9 @@ python trader/gui_app.py
 ```
 
 ---
+
 easyTraser trader for python
 python==3.13.3
-
 
 # easyTraser
 
@@ -68,4 +70,8 @@ pip install -r requiments.txt
 - 增加回测与实盘接口
 
 ---
+
 欢迎贡献代码与建议！
+
+
+pyinstaller -F --name "巴菲特股票分析系统" --collect-all numpy trader/gui\_app.py

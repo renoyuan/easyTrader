@@ -4,7 +4,7 @@
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
-from trader.data_downloader import load_stock_from_sqlite
+from trader.data.data_downloader import load_stock_from_sqlite
 
 class StockAIModel:
     """

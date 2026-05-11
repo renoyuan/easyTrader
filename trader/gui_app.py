@@ -1,120 +1,92 @@
-
-# GUI界面模块
-
+# GUI界面模块 — 纯净版：仅保留 巴菲特评分系统
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog
+from tkinter import messagebox, simpledialog
 import pandas as pd
-from .ai_model import StockAIModel
-from .data_downloader import download_stock_to_sqlite, load_stock_from_sqlite
+import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+# 仅保留巴菲特评分
+from trader.scorer.buffett import BuffettScorer
+
 
 class EasyTraserGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("easyTraser 股票分析")
-        self.model = StockAIModel()
-        self.df = None
+        self.root.title("easyTrader 巴菲特股票评分系统")
+        self.root.geometry("750x600")
+
+        # 巴菲特评分器
+        self.buffett = BuffettScorer()
         self.symbol = None
+
+        # 构建界面
         self._build_widgets()
 
     def _build_widgets(self):
-        btn_download = tk.Button(self.root, text="下载股票数据到SQLite", command=self.download_data)
-        btn_download.pack(pady=5)
-        btn_load = tk.Button(self.root, text="从SQLite加载数据", command=self.load_data_sqlite)
-        btn_load.pack(pady=5)
-        btn_ai = tk.Button(self.root, text="AI分析", command=self.run_ai)
-        btn_ai.pack(pady=5)
-        self.text = tk.Text(self.root, height=12, width=70)
-        self.text.pack(pady=5)
+        # 按钮区域
+        frame = tk.Frame(self.root)
+        frame.pack(pady=15)
 
-    def download_data(self):
-        def show_messagebox_and_print(level, title, msg):
-            print(f"[{level}] {title}: {msg}")
-            if level == 'info':
-                messagebox.showinfo(title, msg)
-            elif level == 'error':
-                messagebox.showerror(title, msg)
+        tk.Button(frame, text="📥 输入股票代码", command=self.input_code, width=20, height=2)\
+            .grid(row=0, column=0, padx=10)
 
-        import datetime
-        symbol = simpledialog.askstring("输入股票代码", "如: 600519 或 000001 或 AAPL")
-        if not symbol:
-            show_messagebox_and_print("error", "输入错误", "请填写股票代码")
-            return
-        # 自动补全后缀
-        if symbol.isdigit() and len(symbol) == 6:
-            if symbol.startswith('6'):
-                symbol_full = symbol + '.SS'
-            else:
-                symbol_full = symbol + '.SZ'
+        tk.Button(frame, text="📊 执行巴菲特评分", command=self.run_buffett_score, width=20, height=2)\
+            .grid(row=0, column=1, padx=10)
+
+        # 结果展示
+        tk.Label(self.root, text="评分结果", font=("微软雅黑", 12)).pack()
+        self.text = tk.Text(self.root, font=("Consolas", 11), height=26, width=85)
+        self.text.pack(pady=5, fill=tk.BOTH, expand=True)
+
+        # 清空
+        tk.Button(self.root, text="清空内容", command=lambda: self.text.delete(1.0, tk.END)).pack(pady=5)
+
+    def input_code(self):
+        code = simpledialog.askstring("股票代码", "请输入6位股票代码：\n例如：600699")
+        if code and code.isdigit() and len(code) == 6:
+            self.symbol = code
+            messagebox.showinfo("成功", f"已选择股票：{code}")
         else:
-            symbol_full = symbol
-        # 日期输入，默认一年
-        today = datetime.date.today()
-        one_year_ago = today.replace(year=today.year-1)
-        date_range = simpledialog.askstring(
-            "选择日期区间",
-            f"格式: YYYY-MM-DD,YYYY-MM-DD\n默认: {one_year_ago},{today}",
-        )
-        if date_range and ',' in date_range:
-            start, end = [d.strip() for d in date_range.split(',', 1)]
-        else:
-            start, end = str(one_year_ago), str(today)
-        try:
-            table_name=download_stock_to_sqlite(symbol_full, start, end)
-            # 检查数据是否真的下载成功
-            from trader.data_downloader import load_stock_from_sqlite
-            df_check = load_stock_from_sqlite(table_name=table_name)
-            if df_check is not None and not df_check.empty:
-                msg = f"{table_name} {start}~{end} 数据下载并保存到本地数据库成功！"
-                self.text.insert(tk.END, msg + "\n")
-                print(msg)
-            else:
-                show_messagebox_and_print("error", "下载失败", f"{symbol_full} 没有获取到有效数据，请检查代码或网络。")
-        except Exception as e:
-            show_messagebox_and_print("error", "下载失败", str(e))
+            messagebox.showerror("错误", "请输入6位数字股票代码")
 
-    def load_data_sqlite(self):
-        def show_messagebox_and_print(level, title, msg):
-            print(f"[{level}] {title}: {msg}")
-            if level == 'info':
-                messagebox.showinfo(title, msg)
-            elif level == 'error':
-                messagebox.showerror(title, msg)
-        symbol = simpledialog.askstring("输入股票代码", "如: 600519.SS 或 AAPL")
-        if not symbol:
-            show_messagebox_and_print("error", "输入错误", "请填写股票代码")
+    def run_buffett_score(self):
+        if not self.symbol:
+            messagebox.showwarning("提示", "请先输入股票代码")
             return
-        try:
-            self.df = load_stock_from_sqlite(symbol)
-            self.symbol = symbol
-            msg = f"{symbol} 数据加载成功，{len(self.df)} 条记录"
-            self.text.insert(tk.END, msg + "\n")
-            print(msg)
-        except Exception as e:
-            show_messagebox_and_print("error", "加载失败", str(e))
 
-    def run_ai(self):
-        def show_messagebox_and_print(level, title, msg):
-            print(f"[{level}] {title}: {msg}")
-            if level == 'info':
-                messagebox.showinfo(title, msg)
-            elif level == 'error':
-                messagebox.showerror(title, msg)
-        if self.df is None:
-            show_messagebox_and_print("error", "错误", "请先加载数据")
-            return
+        self.text.insert(tk.END, "\n=============================================\n")
+        self.text.insert(tk.END, "           📊 巴菲特价值评分中...\n")
+        self.text.insert(tk.END, "=============================================\n")
+        self.root.update()
+
         try:
-            # 兼容yfinance下载的字段名
-            feature_cols = [col for col in ["Open", "High", "Low"] if col in self.df.columns]
-            target_col = "Close" if "Close" in self.df.columns else None
-            if not (feature_cols and target_col):
-                raise ValueError("数据缺少必要字段：Open, High, Low, Close")
-            self.model.train(self.df, feature_cols, target_col)
-            preds = self.model.predict(self.df, feature_cols)
-            msg = f"AI预测结果（前5条）：{preds[:5]}"
-            self.text.insert(tk.END, msg + "\n")
-            print(msg)
+            res = self.buffett.score(self.symbol)
+            if not res:
+                self.text.insert(tk.END, "❌ 评分失败：无财报数据\n")
+                return
+
+            self.text.insert(tk.END, f"\n股票代码：{res['code']}\n")
+            self.text.insert(tk.END, f"质地评分：{res['base']} / 80\n")
+            self.text.insert(tk.END, f"估值评分：{res['val_score']} / 20\n")
+            self.text.insert(tk.END, f"综合总分：{res['score']} / 100\n")
+            self.text.insert(tk.END, f"趋势状态：{res['trend_label']}\n")
+            self.text.insert(tk.END, f"估值状态：{res['val_label']}\n")
+            self.text.insert(tk.END, f"投资评级：{res['rating']}\n")
+            self.text.insert(tk.END, "-----------------------------------------\n")
+
+            for k, v in res["indicators"].items():
+                if pd.isna(v):
+                    continue
+                self.text.insert(tk.END, f"{k:<18} {v:.2%}\n")
+
+            self.text.insert(tk.END, "=========================================\n\n")
+
         except Exception as e:
-            show_messagebox_and_print("error", "分析失败", str(e))
+            self.text.insert(tk.END, f"❌ 评分异常：{str(e)}\n")
+            messagebox.showerror("错误", str(e))
+
 
 def main():
     root = tk.Tk()
