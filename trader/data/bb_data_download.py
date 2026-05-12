@@ -1,3 +1,12 @@
+"""
+#!/usr/bin/env python
+-*- coding: utf-8 -*-
+PROJECT_NAME: F:\opensource\easyTrader\trader\data
+CREATE_TIME: 2026-05-12 
+E_MAIL: renoyuan@foxmail.com
+AUTHOR: reno 
+note:  
+"""
 import akshare as ak
 import pandas as pd
 import sqlite3

@@ -7,8 +7,9 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-# 仅保留巴菲特评分
+
 from trader.scorer.buffett import BuffettScorer
+from trader.scorer.graham import GrahamScorer
 
 
 class EasyTraserGUI:
@@ -34,6 +35,9 @@ class EasyTraserGUI:
 
         tk.Button(frame, text="📊 执行巴菲特评分", command=self.run_buffett_score, width=20, height=2)\
             .grid(row=0, column=1, padx=10)
+        
+        tk.Button(frame, text="📊 执行格雷厄姆评分", command=self.run_graham_score, width=20, height=2)\
+            .grid(row=0, column=2, padx=10)
 
         # 结果展示
         tk.Label(self.root, text="评分结果", font=("微软雅黑", 12)).pack()
@@ -50,6 +54,66 @@ class EasyTraserGUI:
             messagebox.showinfo("成功", f"已选择股票：{code}")
         else:
             messagebox.showerror("错误", "请输入6位数字股票代码")
+    
+    def run_graham_score(self):
+        if not self.symbol:
+            messagebox.showwarning("提示", "请先输入股票代码")
+            return
+
+        self.text.insert(tk.END, "\n=============================================\n")
+        self.text.insert(tk.END, "           📊 格雷厄姆价值评分中...\n")
+        self.text.insert(tk.END, "=============================================\n")
+        self.root.update()
+
+        try:
+            scorer = GrahamScorer()
+            res = scorer.score(self.symbol)
+
+            if not res:
+                self.text.insert(tk.END, "❌ 评分失败：数据不足或无法计算\n")
+                return
+
+            # ========================
+            # 基础信息
+            # ========================
+            self.text.insert(tk.END, f"\n股票代码：{res['code']}\n")
+            self.text.insert(tk.END, f"综合评分：{res['score']} / 100\n")
+            self.text.insert(tk.END, f"投资评级：{res['rating']}\n")
+
+            self.text.insert(tk.END, "-" * 45 + "\n")
+
+            # ========================
+            # 估值信息（核心）
+            # ========================
+            if res.get("pe") is not None:
+                self.text.insert(tk.END, f"PE(TTM)：{res['pe']:.2f}\n")
+            else:
+                self.text.insert(tk.END, "PE(TTM)：N/A\n")
+
+            if res.get("pb") is not None:
+                self.text.insert(tk.END, f"PB：{res['pb']:.2f}\n")
+            else:
+                self.text.insert(tk.END, "PB：N/A\n")
+
+            self.text.insert(tk.END, "-" * 45 + "\n")
+
+            # ========================
+            # 估值解释（关键增强）
+            # ========================
+            if res["score"] >= 80:
+                self.text.insert(tk.END, "🔥 极度低估（典型格雷厄姆机会）\n")
+            elif res["score"] >= 60:
+                self.text.insert(tk.END, "✅ 价值区间（可关注）\n")
+            elif res["score"] >= 40:
+                self.text.insert(tk.END, "⚠️ 普通估值（无明显机会）\n")
+            else:
+                self.text.insert(tk.END, "❌ 高估或质量不足\n")
+
+            self.text.insert(tk.END, "=========================================\n\n")
+
+        except Exception as e:
+            self.text.insert(tk.END, f"❌ 格雷厄姆评分异常：{str(e)}\n")
+            messagebox.showerror("错误", str(e))
 
     def run_buffett_score(self):
         if not self.symbol:

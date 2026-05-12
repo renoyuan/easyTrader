@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import akshare as ak
 from datetime import datetime, timedelta
-
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from trader.data.db import DBReader
