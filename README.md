@@ -1,4 +1,4 @@
-## AI分析与GUI界面
+## 与GUI界面
 
 ### AI分析（trader/ai_model.py）
 
@@ -73,5 +73,4 @@ pip install -r requiments.txt
 
 欢迎贡献代码与建议！
 
-
-pyinstaller -F --name "巴菲特股票分析系统" --collect-all numpy trader/gui\_app.py
+pyinstaller -F --name "股神分析系统" --collect-all numpy trader/gui\_app.py
