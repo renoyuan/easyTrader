@@ -11,12 +11,14 @@ from datetime import datetime, timedelta
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from trader.processor.feature import StockFeatureProcessor
+from trader.data.db import DBReader
+from trader.processor.financial import FinancialProcessor
 
 
 class BuffettScorer:
     def __init__(self):
-        self.proc = StockFeatureProcessor()
+        self.db = DBReader()
+        self.proc = FinancialProcessor()
 
     def _trend(self, series, max_p):
         """计算指标趋势得分"""
@@ -82,20 +84,23 @@ class BuffettScorer:
             return 0,  "高估 ❌"
 
     def score(self, code, years=5):
-        # 1. 通过 StockFeatureProcessor 逐年计算财务指标
-        current_year = datetime.now().year
-        years_list = list(range(current_year - years, current_year + 1))
-
-        yearly = self.proc.calculate_yearly_features(code, years_list)
-        if yearly.empty or len(yearly) < 3:
-            print(f"{code} 财务指标计算失败或数据不足")
+        # 1. 读取本地财报数据
+        income = self.db.get_financial_data(code, "income", years)
+        balance = self.db.get_financial_data(code, "balance", years)
+        cash = self.db.get_financial_data(code, "cashflow", years)
+        if income.empty:
+            print(f"无{code}财报数据")
             return None
 
-        # 只对数值列求均值，跳过 year/report_date 等非数值列
-        num_cols = yearly.select_dtypes(include=[np.number]).columns
-        ind = yearly[num_cols].mean()
+        # 2. 计算逐年财务指标
+        yearly = self.proc.calculate_yearly_indicators(income, balance, cash)
+        if yearly is None or len(yearly) < 3:
+            print("财务指标计算失败")
+            return None
 
-        # 2. 各项趋势得分
+        ind = yearly.mean()
+
+        # 3. 各项趋势得分
         trend = {
             "roe": self._trend(yearly["ROE"], 8),
             "profit": self._trend(yearly["净利润率"], 6),
@@ -105,7 +110,7 @@ class BuffettScorer:
         }
         trend_total = sum(trend.values())
 
-        # 3. 财务基础分
+        # 4. 财务基础分
         base = 0
         if not np.isnan(ind["ROE"]):
             if ind["ROE"] >= 0.15:
@@ -144,7 +149,7 @@ class BuffettScorer:
         # 质地+趋势总分封顶80
         base_total = min(base + trend_total, 80)
 
-        # 4. 估值打分 0~20
+        # 5. 估值打分 0~20
         val_df = self.get_ak_valuation_5y(code)
         val_score, val_label = self.calc_valuation_score(val_df)
 

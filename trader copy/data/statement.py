@@ -17,7 +17,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # ORM相关导入
-from .orm import (
+from orm import (
     Dividend,
     Balance,
     Cashflow,

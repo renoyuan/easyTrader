@@ -8,25 +8,23 @@ AUTHOR: reno
 note:  格雷厄姆评分模型
 """
 
-import sys, os
+import sys,os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+print(sys.path)
 import numpy as np
 import pandas as pd
+import akshare as ak
 from datetime import datetime, timedelta
 
-from trader.data.statement import StatementDownload
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+from trader.data.db import DBReader
+from trader.processor.financial import FinancialProcessor
 
 
 class XuXiangScorer:
-    """
-    徐翔风格评分
-    ============
-    基于 K 线行情数据的短期趋势交易评分系统，
-    考量动量、成交量、连续上涨、新高突破、波动率等因素。
-    """
-    def __init__(self, data_service=None):
-        self.data_service = data_service or StatementDownload()
+    def __init__(self):
+        self.db = DBReader()
 
     # =========================
     # 趋势强度（核心）
@@ -83,18 +81,15 @@ class XuXiangScorer:
     # =========================
     def score(self, code, years=1):
 
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=years * 365)
-        start_str = start_date.strftime("%Y%m%d")
-        end_str = end_date.strftime("%Y%m%d")
+        # 👉 徐翔只看行情（不看财报）
+        price = self.db.get_financial_data(code, "price", years)
 
-        kline = self.data_service.get_kline_df(code, start_str, end_str)
-        if kline.empty:
-            print(f"{code} 无K线数据")
+        if price.empty:
             return None
 
-        close = kline["close"] if "close" in kline else kline.iloc[:, 1]
-        volume = kline["volume"] if "volume" in kline else kline.iloc[:, 4]
+        # 假设字段
+        close = price["close"]
+        volume = price["volume"]
 
         score = 0
 
@@ -152,10 +147,14 @@ class XuXiangScorer:
 
 if __name__ == "__main__":
 
-    s = XuXiangScorer()
+    s = GrahamScorer()
     code = input("请输入股票代码：").strip()
     res = s.score(code)
     if res:
-        s.print_score(res)
+        print(f"\n====== 📊 {res['code']} 格雷厄姆评分 ======")
+        print(f"综合总分：{res['score']}/100")
+        print(f"PE：{res['pe']}")
+        print(f"PB：{res['pb']}")
+        print(f"投资评级：{res['rating']}")
     else:
-        print("评分失败，请检查股票代码")
+        print("评分失败，请检查股票代码或财报数据")

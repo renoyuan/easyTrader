@@ -18,12 +18,13 @@ from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from trader.processor.feature import StockFeatureProcessor
+from trader.data.db import DBReader
+from trader.processor.financial import FinancialProcessor
 
 
 class GrahamScorer:
     def __init__(self):
-        self.proc = StockFeatureProcessor()
+        self.db = DBReader()
 
     # =========================
     # 趋势（弱化，只看稳定性）
@@ -70,17 +71,21 @@ class GrahamScorer:
     # =========================
     def score(self, code, years=5):
 
-        current_year = datetime.now().year
-        years_list = list(range(current_year - years, current_year + 1))
+        income = self.db.get_financial_data(code, "income", years)
+        balance = self.db.get_financial_data(code, "balance", years)
+        cashflow = self.db.get_financial_data(code, "cashflow", years)
 
-        yearly = self.proc.calculate_yearly_features(code, years_list)
-
-        if yearly.empty:
+        if income.empty or balance.empty:
             return None
 
-        # 只对数值列求均值，跳过 year/report_date 等非数值列
-        num_cols = yearly.select_dtypes(include=[np.number]).columns
-        ind = yearly[num_cols].mean()
+        yearly = FinancialProcessor().calculate_yearly_indicators(
+            income, balance, cashflow
+        )
+
+        if yearly is None:
+            return None
+
+        ind = yearly.mean()
 
         score = 0
 
@@ -134,15 +139,14 @@ class GrahamScorer:
             score += 10
 
         # =========================
+        # 4. 流动资产安全边际（核心格雷厄姆）
         # =========================
-        # 4. 流动比率安全边际（核心格雷厄姆）
-        # =========================
-        detailed = self.proc.calculate_financial_indicators(code, years_list)
-        cr = detailed.get("流动比率", np.nan)
-        if not np.isnan(cr) and cr > 1.5:
-            score += 10
-        elif not np.isnan(cr) and cr > 1.0:
-            score += 5
+        if "流动资产" in ind and "流动负债" in ind:
+
+            net_working_capital = ind["流动资产"] - ind["流动负债"]
+
+            if net_working_capital > 0:
+                score += 10
 
         # =========================
         # 最终评分
@@ -166,11 +170,16 @@ class GrahamScorer:
             "rating": rating
         }
     def print_score(self, r):
-        print(f"\n====== 📊 {r['code']} 格雷厄姆评分 ======")
+        print(f"\n====== 📊 {r['code']} 巴菲特完整评分（质地+趋势+估值）======")
+        print(f"质地趋势分：{r['base']}/80  |  估值分：{r['val_score']}/20")
         print(f"综合总分：{r['score']}/100")
-        print(f"PE：{r['pe']}")
-        print(f"PB：{r['pb']}")
+        print(f"趋势状态：{r['trend_label']}  |  估值状态：{r['val_label']}")
         print(f"投资评级：{r['rating']}")
+        print("-" * 50)
+        for k, v in r["indicators"].items():
+            if pd.isna(v):
+                continue
+            print(f"{k:<18} {v:.2%}")
         print("=" * 60)
 
 

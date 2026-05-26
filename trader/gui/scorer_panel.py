@@ -1,0 +1,299 @@
+"""
+股神评分面板
+=============
+将巴菲特、格雷厄姆、徐翔合并为一个下拉选择框，
+选择评分体系后点击「开始评分」执行对应策略。
+"""
+import tkinter as tk
+from tkinter import messagebox, ttk
+import pandas as pd
+
+from trader.scorer.buffett import BuffettScorer
+from trader.scorer.graham import GrahamScorer
+from trader.scorer.xuxiang import XuXiangScorer
+
+
+# ── 评分体系注册表 ──
+SCORER_REGISTRY = {
+    "巴菲特价值评分": {
+        "icon": "🧑‍💼",
+        "scorer_class": BuffettScorer,
+        "color": "#34a853",
+        "method": "score",
+    },
+    "格雷厄姆价值评分": {
+        "icon": "📐",
+        "scorer_class": GrahamScorer,
+        "color": "#9334e6",
+        "method": "score",
+    },
+    "徐翔趋势评分": {
+        "icon": "🔥",
+        "scorer_class": XuXiangScorer,
+        "color": "#e67e22",
+        "method": "score",
+    },
+}
+
+
+class ScorerPanel:
+    """股神评分面板——下拉选择评分体系 + 执行"""
+
+    def __init__(self, status_callback, info_callback,
+                 tree_callback, history_callback, notebook_select_callback) -> None:
+        """
+        :param status_callback:     (msg, is_ok) → 更新状态栏
+        :param info_callback:       (msg) → 文本区追加内容
+        :param tree_callback:       (rows: list[tuple]) → 刷新评分摘要表格
+        :param history_callback:    (code, system, score, rating) → 添加历史记录
+        :param notebook_select_callback: (index) → 切换到指定标签页
+        """
+        self._set_status = status_callback
+        self._info = info_callback
+        self._update_tree = tree_callback
+        self._add_history = history_callback
+        self._select_tab = notebook_select_callback
+
+        self.symbol: str | None = None
+        self._cached_scorer = {}  # 缓存评分器实例
+        self._current_system = list(SCORER_REGISTRY.keys())[0]
+
+    def build_selector(self, parent: tk.Frame) -> None:
+        """由主窗口在按钮组内部创建下拉选择控件"""
+        selector_frame = tk.Frame(parent, bg="#ffffff")
+        selector_frame.pack(fill=tk.X, pady=(2, 2))
+
+        # 美化标签
+        lbl = tk.Label(
+            selector_frame, text="选择评分体系",
+            bg="#ffffff", fg="#5f6368",
+            font=("微软雅黑", 9)
+        )
+        lbl.pack(anchor=tk.W, pady=(2, 1))
+
+        # 自定义 ComboBox 样式
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure(
+            "Score.TCombobox",
+            fieldbackground="#f5f5f5",
+            background="#ffffff",
+            foreground="#202124",
+            arrowcolor="#1a73e8",
+            font=("微软雅黑", 10),
+            padding=3,
+        )
+        style.map(
+            "Score.TCombobox",
+            fieldbackground=[("readonly", "#f0f2f5")],
+            foreground=[("readonly", "#202124")],
+        )
+
+        # 带图标的下拉选项
+        display_names = [
+            "🧑‍💼  巴菲特价值评分",
+            "📐  格雷厄姆价值评分",
+            "🔥  徐翔趋势评分",
+        ]
+        self._combo = ttk.Combobox(
+            selector_frame,
+            values=display_names,
+            state="readonly",
+            style="Score.TCombobox",
+            width=20,
+        )
+        self._combo.current(0)
+        self._combo.pack(fill=tk.X, pady=(0, 4))
+        self._combo.bind("<<ComboboxSelected>>", self._on_select)
+
+        # 存一份真实名称映射
+        self._display_to_real = {
+            "🧑‍💼  巴菲特价值评分": "巴菲特价值评分",
+            "📐  格雷厄姆价值评分": "格雷厄姆价值评分",
+            "🔥  徐翔趋势评分": "徐翔趋势评分",
+        }
+
+    def _on_select(self, event=None) -> None:
+        display = self._combo.get()
+        self._current_system = self._display_to_real.get(display, display)
+
+    def _get_system(self) -> str:
+        """获取当前选中的真实评分体系名称"""
+        display = self._combo.get()
+        return self._display_to_real.get(display, display)
+
+    # ────────────────────────────────
+    #  统一评分入口
+    # ────────────────────────────────
+    def run_scoring(self) -> None:
+        """执行当前选中的评分体系"""
+        system = self._get_system()
+        info = SCORER_REGISTRY.get(system)
+        if not info:
+            messagebox.showerror("错误", f"未找到评分体系: {system}")
+            return
+
+        if not self._check_symbol():
+            return
+
+        icon = info["icon"]
+        self._before_run(f"{icon} {system}")
+
+        # 获取或缓存评分器
+        if system not in self._cached_scorer:
+            scorer_cls = info["scorer_class"]
+            self._cached_scorer[system] = scorer_cls()
+        scorer = self._cached_scorer[system]
+
+        try:
+            res = scorer.score(self.symbol)
+            if not res:
+                self._info("❌ 评分失败：数据不足，请确认已下载该股票数据")
+                self._set_status("评分失败", False)
+                return
+
+            # 输出结果
+            dispatch_map = {
+                "巴菲特价值评分": (self._append_buffett_result, self._fill_tree_buffett),
+                "格雷厄姆价值评分": (self._append_graham_result, self._fill_tree_graham),
+                "徐翔趋势评分": (self._append_xuxiang_result, self._fill_tree_xuxiang),
+            }
+            append_fn, tree_fn = dispatch_map.get(system, (None, None))
+            if append_fn:
+                append_fn(res)
+            if tree_fn:
+                tree_fn(res)
+
+            # 短名称用于历史记录
+            short_name = system.replace("价值评分", "").replace("趋势评分", "")
+            self._set_status(f"{system}完成: {res['score']}/100", True)
+            self._add_history(self.symbol, short_name, res["score"], res["rating"])
+            self._select_tab(0)
+
+        except Exception as e:
+            self._handle_error(system, e)
+
+    # ────────────────────────────────
+    #  内部方法
+    # ────────────────────────────────
+    def _check_symbol(self) -> bool:
+        if not self.symbol:
+            messagebox.showwarning("提示", "请先点击「输入股票代码」")
+            self._set_status("请先输入股票代码", False)
+            return False
+        return True
+
+    def _before_run(self, title: str) -> None:
+        self._set_status(f"⏳ {title}中...", True)
+        self._info(f"\n{'='*50}")
+        self._info(f"📊  {title} ...")
+        self._info(f"{'='*50}")
+
+    def _handle_error(self, context: str, error: Exception) -> None:
+        msg = str(error)
+        import traceback
+        traceback.print_exc()
+        self._info(f"❌ {context} 异常: {msg}")
+        self._set_status(f"{context} 失败", False)
+        messagebox.showerror("评分异常", msg)
+
+    # ────────────────────────────────
+    #  文本输出
+    # ────────────────────────────────
+    def _append_buffett_result(self, res: dict) -> None:
+        self._info(f"\n股票代码: {res['code']}")
+        self._info(f"🧑‍💼 巴菲特评分")
+        self._info(f"  ├ 质地趋势分: {res['base']} / 80")
+        self._info(f"  ├ 估值评分:   {res['val_score']} / 20")
+        self._info(f"  └ 综合总分:   {res['score']} / 100")
+        self._info(f"\n趋势状态: {res['trend_label']}")
+        self._info(f"估值状态: {res['val_label']}")
+        self._info(f"投资评级: {res['rating']}")
+        self._info(f"{'─'*45}")
+        for k, v in res["indicators"].items():
+            if pd.isna(v):
+                continue
+            self._info(f"{k:<20} {v:.2%}")
+        self._info(f"{'='*50}\n")
+
+    def _append_graham_result(self, res: dict) -> None:
+        self._info(f"\n股票代码: {res['code']}")
+        self._info(f"📐 格雷厄姆评分")
+        self._info(f"  └ 综合总分: {res['score']} / 100")
+        self._info(f"\n投资评级: {res['rating']}")
+        self._info(f"{'─'*45}")
+        pe_txt = f"{res['pe']:.2f}" if res.get("pe") is not None else "N/A"
+        pb_txt = f"{res['pb']:.2f}" if res.get("pb") is not None else "N/A"
+        self._info(f"PE(TTM):     {pe_txt}")
+        self._info(f"PB:          {pb_txt}")
+        score = res["score"]
+        if score >= 80:
+            self._info("🔥 极度低估（典型格雷厄姆机会）")
+        elif score >= 60:
+            self._info("✅ 价值区间（可关注）")
+        elif score >= 40:
+            self._info("⚠️ 普通估值（无明显机会）")
+        else:
+            self._info("❌ 高估或质量不足")
+        self._info(f"{'='*50}\n")
+
+    def _append_xuxiang_result(self, res: dict) -> None:
+        self._info(f"\n股票代码: {res['code']}")
+        self._info(f"🔥 徐翔趋势评分")
+        self._info(f"  └ 综合总分: {res['score']} / 100")
+        if res.get("momentum") is not None:
+            self._info(f"\n10日动量:   {res['momentum']}%")
+        self._info(f"\n交易评级: {res['rating']}")
+        self._info(f"{'─'*45}")
+        score = res["score"]
+        if score >= 80:
+            self._info("🔥 强势龙头（可参与短期交易）")
+        elif score >= 60:
+            self._info("⚡ 中等趋势（观察为主）")
+        elif score >= 40:
+            self._info("⚠️ 弱势震荡（不建议参与）")
+        else:
+            self._info("❌ 无交易价值（回避）")
+        self._info(f"{'='*50}\n")
+
+    # ────────────────────────────────
+    #  表格填充
+    # ────────────────────────────────
+    def _fill_tree_buffett(self, res: dict) -> None:
+        rows = [
+            ("🧑‍💼 巴菲特评分", f"{res['score']}/100", res["rating"]),
+            ("   ├ 质地趋势分", f"{res['base']}/80", res["trend_label"]),
+            ("   ├ 估值评分", f"{res['val_score']}/20", res["val_label"]),
+        ]
+        for k, v in res["indicators"].items():
+            if pd.isna(v):
+                continue
+            label_map = {
+                "ROE": "净资产收益率(ROE)", "净利润率": "净利润率",
+                "资产负债率": "资产负债率", "经营现金流/净利润": "经营现金流/净利润",
+                "净利润增长率": "净利润增长率",
+            }
+            rows.append((f"   ├ {label_map.get(k, k)}", f"{v:.2%}", ""))
+        self._update_tree(rows)
+
+    def _fill_tree_graham(self, res: dict) -> None:
+        pe = f"{res['pe']:.2f}" if res.get("pe") is not None else "N/A"
+        pb = f"{res['pb']:.2f}" if res.get("pb") is not None else "N/A"
+        score = res["score"]
+        explanation = "🔥 极度低估" if score >= 80 else "✅ 价值区间" if score >= 60 else "⚠️ 普通估值" if score >= 40 else "❌ 高估"
+        self._update_tree([
+            ("📐 格雷厄姆评分", f"{score}/100", res["rating"]),
+            ("   ├ PE(TTM)", pe, ""), ("   ├ PB", pb, ""),
+            ("   ├ 估值判断", "", explanation),
+        ])
+
+    def _fill_tree_xuxiang(self, res: dict) -> None:
+        momentum = f"{res['momentum']}%" if res.get("momentum") is not None else "N/A"
+        score = res["score"]
+        explanation = "🔥 强势龙头" if score >= 80 else "⚡ 中等趋势" if score >= 60 else "⚠️ 弱势震荡" if score >= 40 else "❌ 无交易价值"
+        self._update_tree([
+            ("🔥 徐翔趋势评分", f"{score}/100", res["rating"]),
+            ("   ├ 10日动量", momentum, ""),
+            ("   ├ 趋势判断", "", explanation),
+        ])
+
