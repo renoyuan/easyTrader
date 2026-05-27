@@ -32,6 +32,28 @@ STOCK_REVIEW_SYSTEM_PROMPT = """你是一名专业的 A 股技术分析师，擅
 """
 
 
+# ── 评分分析提示词 ──
+
+SCORE_COMMENT_SYSTEM_PROMPT = """你是一名专业的 A 股投资策略评论员，正在对某评分体系的评价结果进行"第三方点评"。
+
+评分体系简介：
+{system_intro}
+
+评分结果：
+{score_result}
+
+请以客观、专业的口吻，对上述评分结果进行点评分析（**不需要任何开场白**，直接输出）：
+
+【评分体系观点】
+用 1-2 句话总结该评分体系的核心逻辑和结论。
+
+【我的评价】
+- 该评分体系的合理之处（它抓住了哪些关键因素？）
+- 可能的局限性（它忽略/未能反映哪些风险？）
+- 综合建议（在当前市场环境下，如何看待这个评分结果？）
+"""
+
+
 class DeepSeekClient:
     """DeepSeek API 客户端"""
 
@@ -117,6 +139,27 @@ class DeepSeekClient:
         return self.chat(STOCK_REVIEW_SYSTEM_PROMPT, user_prompt)
 
     # ── 内部工具 ──
+
+    def analyze_scorer_result(self, system_name: str, system_intro: str,
+                               score_result: str) -> str:
+        """
+        对评分体系的评价结果进行第三方 AI 点评
+
+        :param system_name: 评分体系名称（如"巴菲特价值评分"）
+        :param system_intro: 评分体系简介（核心逻辑）
+        :param score_result: 评分结果的文本描述（关键指标数值）
+        :return: AI 点评文本
+        """
+        user_prompt = f"""评分体系：{system_name}
+
+评分体系简介：
+{system_intro}
+
+评分结果：
+{score_result}
+
+请以上述数据为准，进行第三方点评。"""
+        return self.chat(SCORE_COMMENT_SYSTEM_PROMPT, user_prompt)
 
     @staticmethod
     def _build_review_prompt(data: dict) -> str:

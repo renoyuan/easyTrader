@@ -11,6 +11,8 @@ import pandas as pd
 from trader.scorer.buffett import BuffettScorer
 from trader.scorer.graham import GrahamScorer
 from trader.scorer.xuxiang import XuXiangScorer
+from trader.scorer.renoyuan import RenoyuanScorer
+from trader.ai import DeepSeekClient
 
 
 # ── 评分体系注册表 ──
@@ -31,6 +33,12 @@ SCORER_REGISTRY = {
         "icon": "🔥",
         "scorer_class": XuXiangScorer,
         "color": "#e67e22",
+        "method": "score",
+    },
+    "renoyuan核心评分": {
+        "icon": "🏦",
+        "scorer_class": RenoyuanScorer,
+        "color": "#0f9d58",
         "method": "score",
     },
 }
@@ -94,6 +102,7 @@ class ScorerPanel:
             "🧑‍💼  巴菲特价值评分",
             "📐  格雷厄姆价值评分",
             "🔥  徐翔趋势评分",
+            "🏦  renoyuan核心评分",
         ]
         self._combo = ttk.Combobox(
             selector_frame,
@@ -111,6 +120,7 @@ class ScorerPanel:
             "🧑‍💼  巴菲特价值评分": "巴菲特价值评分",
             "📐  格雷厄姆价值评分": "格雷厄姆价值评分",
             "🔥  徐翔趋势评分": "徐翔趋势评分",
+            "🏦  renoyuan核心评分": "renoyuan核心评分",
         }
 
     def _on_select(self, event=None) -> None:
@@ -154,15 +164,40 @@ class ScorerPanel:
 
             # 输出结果
             dispatch_map = {
-                "巴菲特价值评分": (self._append_buffett_result, self._fill_tree_buffett),
-                "格雷厄姆价值评分": (self._append_graham_result, self._fill_tree_graham),
-                "徐翔趋势评分": (self._append_xuxiang_result, self._fill_tree_xuxiang),
+                "巴菲特价值评分": (self._append_buffett_result, self._fill_tree_buffett,
+                                "巴菲特价值投资评分体系：基于 ROE、净利润率、负债率、现金流等财务质地和估值分位综合打分",
+                                lambda r: f"质地趋势分：{r['base']}/80  估值分：{r['val_score']}/20\n综合总分：{r['score']}/100\n趋势状态：{r['trend_label']}  估值状态：{r['val_label']}\n投资评级：{r['rating']}"),
+                "格雷厄姆价值评分": (self._append_graham_result, self._fill_tree_graham,
+                                "格雷厄姆价值投资评分体系：核心逻辑是低估值（PE/PB低）、财务稳定、高安全边际",
+                                lambda r: f"综合总分：{r['score']}/100\nPE(TTM)：{r['pe']}\nPB：{r['pb']}\n投资评级：{r['rating']}"),
+                "徐翔趋势评分": (self._append_xuxiang_result, self._fill_tree_xuxiang,
+                            "徐翔趋势交易评分体系：基于动量、成交量放大、连续上涨、突破新高、波动率等短期交易因子",
+                            lambda r: f"综合总分：{r['score']}/100\n10日动量：{r.get('momentum','N/A')}%\n交易评级：{r['rating']}"),
+                "renoyuan核心评分": (self._append_renoyuan_result, self._fill_tree_renoyuan,
+                                "renoyuan 核心评分体系：以股息率为最高权重，结合 ROE 稳定性、经营现金流持续性、低波动、低负债和合理估值的红利低波策略",
+                                lambda r: f"综合总分：{r['score']}/100\n股息率：{r['indicators'].get('股息率','N/A')}\nROE：{r['indicators'].get('ROE','N/A')}\n可信度：{r.get('confidence','N/A')}\n投资评级：{r['rating']}"),
             }
-            append_fn, tree_fn = dispatch_map.get(system, (None, None))
+            append_fn, tree_fn, system_intro, summary_fn = dispatch_map.get(system, (None, None, "", None))
             if append_fn:
                 append_fn(res)
             if tree_fn:
                 tree_fn(res)
+
+            # ── AI 点评 ──
+            self._info(f"\n{'─'*45}")
+            self._info("🤖 DeepSeekAI 第三方点评")
+            self._info(f"{'─'*45}")
+            try:
+                ai = DeepSeekClient()
+                if ai.is_ready:
+                    summary = summary_fn(res) if summary_fn else f"总分: {res['score']}/100"
+                    analysis = ai.analyze_scorer_result(system, system_intro, summary)
+                    self._info(f"\n{analysis}\n")
+                else:
+                    self._info("  ⚠️ DeepSeek API Key 未配置，跳过 AI 点评\n"
+                               "    请在左侧操作面板 → 设置 DeepSeek Key")
+            except Exception as e:
+                self._info(f"  ⚠️ AI 点评异常: {e}")
 
             # 短名称用于历史记录
             short_name = system.replace("价值评分", "").replace("趋势评分", "")
@@ -255,6 +290,42 @@ class ScorerPanel:
         else:
             self._info("❌ 无交易价值（回避）")
         self._info(f"{'='*50}\n")
+    
+    # ── renoyuan 核心评分 ──
+
+    def _append_renoyuan_result(self, res: dict) -> None:
+        self._info(f"\n股票代码: {res['code']}")
+        self._info(f"🏦 renoyuan 核心评分")
+        self._info(f"  └ 综合总分: {res['score']} / 100")
+        self._info(f"\n投资评级: {res['rating']}")
+        self._info(f"评分可信度: {res.get('confidence', 'N/A')}")
+        if res.get("warnings"):
+            self._info(f"⚠️ 数据警告:")
+            for w in res["warnings"]:
+                self._info(f"   - {w}")
+        self._info(f"{'─'*45}")
+        for k, v in res["indicators"].items():
+            if v is None or pd.isna(v):
+                continue
+            if "率" in k or "ROE" in k or "波动" in k or "稳定性" in k:
+                self._info(f"{k:<20} {v:.2%}")
+            else:
+                self._info(f"{k:<20} {v:.2f}")
+        self._info(f"{'='*50}\n")
+
+    def _fill_tree_renoyuan(self, res: dict) -> None:
+        score = res["score"]
+        dy = res["indicators"].get("股息率", None)
+        roe = res["indicators"].get("ROE", None)
+        confidence = res.get("confidence", "")
+        dy_txt = f"{dy:.2f}%" if dy is not None else "N/A"
+        roe_txt = f"{roe:.2%}" if roe is not None else "N/A"
+        self._update_tree([
+            ("🏦 renoyuan核心评分", f"{score}/100", res["rating"]),
+            ("   ├ 股息率", dy_txt, ""),
+            ("   ├ ROE", roe_txt, ""),
+            ("   ├ 可信度", confidence, ""),
+        ])
 
     # ────────────────────────────────
     #  表格填充

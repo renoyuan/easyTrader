@@ -14,8 +14,8 @@ scorer
 """
 
 from .buffett import *
-from .buffett_score import *
 from .graham import *
 from .xuxiang import *
+from .renoyuan import RenoyuanScorer
 
-__all__ = ["buffett", "buffett_score", "graham", "xuxiang"]
+__all__ = ["buffett", "graham", "xuxiang", "RenoyuanScorer"]

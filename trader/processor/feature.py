@@ -178,3 +178,37 @@ class StockFeatureProcessor:
         return result.sort_values('year').reset_index(drop=True)
 
     # 可扩展：添加更多特征工程方法，如标准化、打分、因子生成等
+
+    def calculate_dividend_yield(self, code: str) -> float:
+        """
+        获取最近一年的股息率（%）
+        通过 StatementDownload 的 get_dividend_df 查询数据库
+        """
+        df = self.data_service.get_dividend_df(code)
+        if df.empty or "dividend_yield" not in df.columns:
+            return np.nan
+        dy = df["dividend_yield"].dropna()
+        return float(dy.iloc[0]) if not dy.empty else np.nan
+
+    def calculate_pe_pb(self, code: str) -> Tuple[Optional[float], Optional[float]]:
+        """
+
+        实时获取最近 PE(TTM) 和 PB（通过 akshare 估值表）
+        """
+        try:
+
+            import akshare as ak
+            df = ak.stock_value_em(symbol=code)
+            if df.empty:
+                return None, None
+
+
+
+            pe = df["PE(TTM)"].dropna()
+            pb = df["市净率"].dropna()
+            return (
+                float(pe.iloc[-1]) if not pe.empty else None,
+                float(pb.iloc[-1]) if not pb.empty else None,
+            )
+        except Exception:
+            return None, None
