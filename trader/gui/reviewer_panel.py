@@ -9,6 +9,7 @@ import traceback
 from datetime import datetime, timedelta
 
 from trader.reviewer import MarketReviewer, StockReviewer
+from trader.ai import DeepSeekClient
 
 
 class ReviewerPanel:
@@ -125,7 +126,7 @@ class ReviewerPanel:
 
         self._set_status(f"⏳ 个股复盘 {symbol}...", True)
         self._info(f"\n{'='*50}")
-        self._info(f"📊  个股复盘: {symbol}")
+        self._info(f"📊  个股复盘")
         self._info(f"{'='*50}")
         print(f"\n📊 个股复盘 {symbol} ...")
 
@@ -137,25 +138,45 @@ class ReviewerPanel:
                 return
 
             name = data.get("name", "")
-            self._info(f"股票名称: {name}")
+            end_date = data.get("统计截止", "")
+
+            # 基础标识
+            self._info(f"  标的：{symbol}  {name}")
+            self._info(f"  统计截止：{end_date}")
 
             # 各区间涨跌
             self._info(f"\n🔹 区间涨跌表现")
-            tree_rows = [("📊 个股复盘", f"{symbol} {name}", "")]
-            for period_name in ("昨日", "一周", "二月", "六月", "一年"):
+            tree_rows = [
+                (f"📊 个股复盘", f"{symbol} {name}", ""),
+                ("统计截止", end_date, ""),
+            ]
+            for period_name in ("昨日", "近一周", "近两月", "近六月", "近一年"):
                 p = data["periods"].get(period_name)
                 if not p:
                     continue
-                pct = p.get("涨跌幅%", 0)
-                icon = "📈" if pct > 0 else "📉" if pct < 0 else "➖"
-                self._info(f"  {icon} {period_name:　<4}: {pct:+.2f}%  "
-                           f"始 {p.get('起始价', '-')} → 终 {p.get('最新价', '-')}  "
-                           f"高 {p.get('最高', '-')} 低 {p.get('最低', '-')}")
-                tree_rows.append((
-                    f"  {period_name}",
-                    f"{pct:+.2f}%",
-                    f"始{p.get('起始价','-')}→终{p.get('最新价','-')}"
-                ))
+
+                if period_name == "昨日":
+                    # 昨日直接展示完整交易日的开盘/收盘/最高/最低
+                    date = p.get('日期', '')
+                    o = p.get('开盘', '-')
+                    c = p.get('收盘', '-')
+                    h = p.get('最高', '-')
+                    l = p.get('最低', '-')
+                    pct = p.get('涨跌幅%', 0)
+                    icon = "📈" if pct > 0 else "📉" if pct < 0 else "➖"
+                    self._info(f"  {icon} {date}  开盘{o} 收盘{c} 高{h} 低{l}  {pct:+.2f}%")
+                    tree_rows.append((f"  {date}", f"{pct:+.2f}%", f"开{o} 收{c} 高{h} 低{l}"))
+                else:
+                    pct = p.get("涨跌幅%", 0)
+                    icon = "📈" if pct > 0 else "📉" if pct < 0 else "➖"
+                    self._info(f"  {icon} {period_name}: {pct:+.2f}%  "
+                               f"始 {p.get('起始价', '-')} → 终 {p.get('最新价', '-')}  "
+                               f"高 {p.get('最高', '-')} 低 {p.get('最低', '-')}")
+                    tree_rows.append((
+                        f"  {period_name}",
+                        f"{pct:+.2f}%",
+                        f"始{p.get('起始价','-')}→终{p.get('最新价','-')}"
+                    ))
 
             # 关键财报数据
             fin = data.get("financial", {})
@@ -165,6 +186,21 @@ class ReviewerPanel:
                     if v is not None:
                         self._info(f"  {k}: {v}")
                         tree_rows.append((f"  {k}", str(v), ""))
+
+            # ── AI 分析 ──
+            self._info(f"\n{'='*50}")
+            self._info("🤖 DeepSeekAI 分析")
+            self._info(f"{'='*50}")
+            try:
+                ai = DeepSeekClient()
+                if ai.is_ready:
+                    analysis = ai.analyze_stock_review(data)
+                    self._info(f"\n{analysis}\n")
+                else:
+                    self._info("  ⚠️ DeepSeek API Key 未配置，跳过 AI 分析\n"
+                               "    请在左侧操作面板 → 设置 DeepSeek Key")
+            except Exception as e:
+                self._info(f"  ⚠️ AI 分析异常: {e}")
 
             self._update_tree(tree_rows)
 

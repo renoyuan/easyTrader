@@ -38,3 +38,19 @@ def set_tushare_token(token: str) -> None:
     cfg = load_config()
     cfg["tushare_token"] = token
     save_config(cfg)
+
+
+# ── DeepSeek ──
+
+
+def get_deepseek_token() -> str:
+    """获取 DeepSeek API Key"""
+    cfg = load_config()
+    return cfg.get("deepseek_token", "")
+
+
+def set_deepseek_token(token: str) -> None:
+    """设置 DeepSeek API Key"""
+    cfg = load_config()
+    cfg["deepseek_token"] = token
+    save_config(cfg)

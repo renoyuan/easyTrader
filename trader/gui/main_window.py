@@ -156,6 +156,11 @@ class EasyTraderGUI:
         ).pack(fill=tk.X, pady=4)
 
         self._create_styled_button(
+            btn_frame, "🤖  设置 DeepSeek Key",
+            self.settings.setup_deepseek, "#5f6368"
+        ).pack(fill=tk.X, pady=4)
+
+        self._create_styled_button(
             btn_frame, "🗑  清空结果",
             self.clear_output, COLOR_DANGER
         ).pack(fill=tk.X, pady=4)
