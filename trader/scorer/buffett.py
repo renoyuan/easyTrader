@@ -82,18 +82,23 @@ class BuffettScorer:
             return 0,  "高估 ❌"
 
     def score(self, code, years=5):
+        print(f"[buffett] 开始评分: {code}")
         # 1. 通过 StockFeatureProcessor 逐年计算财务指标
         current_year = datetime.now().year
         years_list = list(range(current_year - years, current_year + 1))
+        print(f"[buffett] 计算财务指标...")
 
         yearly = self.proc.calculate_yearly_features(code, years_list)
         if yearly.empty or len(yearly) < 3:
-            print(f"{code} 财务指标计算失败或数据不足")
+            print(f"[buffett] 财务指标计算失败或数据不足: {code}")
             return None
+        print(f"[buffett] 财务指标完成, {len(yearly)} 行")
 
-        # 只对数值列求均值，跳过 year/report_date 等非数值列
+        # 只对数值列求均值，跳过 year/report_date 以及金额绝对值列
         num_cols = yearly.select_dtypes(include=[np.number]).columns
-        ind = yearly[num_cols].mean()
+        skip_cols = {'year', '净利润', '营业收入', '应收账款', '经营活动现金流净额', '存货'}
+        ratio_cols = [c for c in num_cols if c not in skip_cols]
+        ind = yearly[ratio_cols].mean()
 
         # 2. 各项趋势得分
         trend = {
@@ -145,8 +150,10 @@ class BuffettScorer:
         base_total = min(base + trend_total, 80)
 
         # 4. 估值打分 0~20
+        print(f"[buffett] 获取估值数据...")
         val_df = self.get_ak_valuation_5y(code)
         val_score, val_label = self.calc_valuation_score(val_df)
+        print(f"[buffett] 估值完成: {val_score}/20, {val_label}")
 
         # 最终总分
         total = min(base_total + val_score, 100)
@@ -166,6 +173,7 @@ class BuffettScorer:
 
         return {
             "code": code,
+            "name": self.proc.get_stock_name(code),
             "score": total,
             "base": base_total,
             "trend": trend_total,

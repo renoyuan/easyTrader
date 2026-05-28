@@ -83,15 +83,18 @@ class XuXiangScorer:
     # =========================
     def score(self, code, years=1):
 
+        print(f"[xuxiang] 开始评分: {code}")
         end_date = datetime.now()
         start_date = end_date - timedelta(days=years * 365)
         start_str = start_date.strftime("%Y%m%d")
         end_str = end_date.strftime("%Y%m%d")
+        print(f"[xuxiang] 获取K线数据...")
 
         kline = self.data_service.get_kline_df(code, start_str, end_str)
         if kline.empty:
-            print(f"{code} 无K线数据")
+            print(f"[xuxiang] 无K线数据: {code}")
             return None
+        print(f"[xuxiang] K线数据获取完成, {len(kline)} 行")
 
         close = kline["close"] if "close" in kline else kline.iloc[:, 1]
         volume = kline["volume"] if "volume" in kline else kline.iloc[:, 4]
@@ -136,8 +139,13 @@ class XuXiangScorer:
         else:
             rating = "❌ 无交易价值"
 
+        # 从 feature 获取名称
+        from trader.processor.feature import StockFeatureProcessor
+        stock_name = StockFeatureProcessor().get_stock_name(code)
+
         return {
             "code": code,
+            "name": stock_name,
             "score": score,
             "momentum": momentum,
             "rating": rating

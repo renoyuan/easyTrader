@@ -11,6 +11,7 @@ import sqlite3
 import pandas as pd
 import json
 import os
+import sys
 from io import StringIO
 
 # 屏蔽所有 pandas 警告
@@ -22,15 +23,14 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 class DBReader:
     """数据库读取器"""
-    
     def __init__(self, db_path=None):
         if db_path is None:
-            # 默认数据库路径
-            self.db_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                'db',
-                'stock_data.sqlite'
-            )
+            # 默认数据库路径（与 orm.py 统一）
+            if getattr(sys, 'frozen', False):
+                base = os.path.dirname(sys.executable)
+            else:
+                base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            self.db_path = os.path.join(base, 'db', 'stock_data.sqlite')
         else:
             self.db_path = db_path
         print(f"数据库路径: {self.db_path}")

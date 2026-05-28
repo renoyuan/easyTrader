@@ -23,14 +23,24 @@ from .orm import (
     Cashflow,
     Income,
     Performance,
+    FinancialIndicator,
     SessionLocal,
     init_db as orm_init_db,
 )
 
 import pathlib
-DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "db")
+
+# 统一数据库路径（与 orm.py 保持一致）
+def _get_db_path():
+    if getattr(sys, 'frozen', False):
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base, 'db', 'stock_data.sqlite')
+
+DB_FILE = _get_db_path()
+DB_DIR = os.path.dirname(DB_FILE)
 os.makedirs(DB_DIR, exist_ok=True)
-DB_FILE = os.path.join(DB_DIR, "stock_data.sqlite")
 
 class StatementDownload:
 
@@ -407,8 +417,136 @@ class StatementDownload:
 
         self.session.commit()
         print(f"✅ 分红送配 入库: {count} 条")
-    
-    
+
+    # ==========================
+    # 6. 财务指标（新浪财经离线缓存）
+    # ==========================
+    def download_financial_indicator(self, code: str, years: list = None) -> int:
+        """
+        下载单只股票的财务指标（新浪财经）并持久化到 financial_indicator 表。
+        支持按年增量更新。
+        :param code: 股票代码，如 '600519'
+        :param years: 年份列表，默认最近5年
+        :return: 入库条数
+        """
+        from datetime import datetime
+        import akshare as ak
+        current_year = datetime.now().year
+        if years is None:
+            years = list(range(current_year - 5, current_year + 1))
+        min_year = min(years) - 1  # 往前多取一年确保覆盖
+        max_year = max(years)
+
+        try:
+            # 检查数据库中已有哪些年份
+            with SessionLocal() as session:
+                existing = session.query(FinancialIndicator.year).filter(
+                    FinancialIndicator.code == code,
+                    FinancialIndicator.year >= min_year,
+                    FinancialIndicator.year <= max_year
+                ).distinct().all()
+                existing_years = {r[0] for r in existing}
+                need_years = [y for y in years if y not in existing_years]
+                if not need_years:
+                    return 0
+                min_year = min(need_years) - 1
+
+            print(f"  [fin_indicator] 下载 {code} 财务指标 ({min_year}~{max_year})...")
+            df = ak.stock_financial_analysis_indicator(symbol=code, start_year=str(min_year))
+            if df.empty:
+                print(f"  [fin_indicator] {code} 无数据")
+                return 0
+
+            # 解析日期
+            df["日期_dt"] = pd.to_datetime(df["日期"])
+            df["year"] = df["日期_dt"].dt.year
+            # 只保留需要的年份
+            df = df[df["year"].between(min_year, max_year)]
+
+            count = 0
+            with SessionLocal() as session:
+                for _, row in df.iterrows():
+                    rdate = row.get("日期")
+                    yr = int(row["year"]) if pd.notna(row["year"]) else None
+                    if not rdate or not yr:
+                        continue
+
+                    # 标准化字段映射
+                    data = {
+                        "code": code,
+                        "report_date": str(rdate)[:10],
+                        "year": yr,
+                        "roe": self._safe_float(row.get("净资产收益率(%)")),
+                        "roa": self._safe_float(row.get("总资产净利润率(%)")),
+                        "gross_margin": self._safe_float(row.get("销售毛利率(%)")),
+                        "net_profit_margin": self._safe_float(row.get("销售净利率(%)")),
+                        "operating_margin": self._safe_float(row.get("营业利润率(%)")),
+                        "inventory_turnover": self._safe_float(row.get("存货周转率(次)")),
+                        "ar_turnover": self._safe_float(row.get("应收账款周转率(次)")),
+                        "total_asset_turnover": self._safe_float(row.get("总资产周转率(次)")),
+                        "current_ratio": self._safe_float(row.get("流动比率")),
+                        "quick_ratio": self._safe_float(row.get("速动比率")),
+                        "debt_ratio_sina": self._safe_float(row.get("资产负债率(%)")),
+                        "ocf_to_profit": self._safe_float(row.get("经营现金净流量与净利润的比率(%)")),
+                        "ocf_to_revenue": self._safe_float(row.get("经营现金净流量对销售收入比率(%)")),
+                        "revenue_growth": self._safe_float(row.get("主营业务收入增长率(%)")),
+                        "profit_growth": self._safe_float(row.get("净利润增长率(%)")),
+                        "asset_growth": self._safe_float(row.get("总资产增长率(%)")),
+                        "eps": self._safe_float(row.get("摊薄每股收益(元)")),
+                        "navps": self._safe_float(row.get("每股净资产(元)")),
+                        "ocfps": self._safe_float(row.get("每股经营性现金流(元)")),
+                    }
+                    try:
+                        session.merge(FinancialIndicator(**data))
+                        count += 1
+                    except Exception:
+                        continue
+                session.commit()
+            print(f"  [fin_indicator] {code} 入库 {count} 条")
+            return count
+        except Exception as e:
+            print(f"  [fin_indicator] {code} 下载异常: {e}")
+            return 0
+
+    def _safe_float(self, v):
+        """安全转 float，处理 None/NaN/空字符串"""
+        if v is None:
+            return None
+        try:
+            val = float(v)
+            return None if pd.isna(val) else val
+        except (ValueError, TypeError):
+            return None
+
+    def get_financial_indicator_df(self, code: str, years: list = None) -> pd.DataFrame:
+        """
+        从数据库获取指定股票的财务指标，返回 DataFrame。
+        若数据不存在则自动触发下载。
+        """
+        with SessionLocal() as session:
+            q = session.query(FinancialIndicator).filter(FinancialIndicator.code == code)
+            if years:
+                q = q.filter(FinancialIndicator.year.in_(years))
+            records = q.order_by(FinancialIndicator.year.asc(), FinancialIndicator.report_date.asc()).all()
+
+        if not records:
+            # 自动下载
+            self.download_financial_indicator(code, years)
+            with SessionLocal() as session:
+                q = session.query(FinancialIndicator).filter(FinancialIndicator.code == code)
+                if years:
+                    q = q.filter(FinancialIndicator.year.in_(years))
+                records = q.order_by(FinancialIndicator.year.asc(), FinancialIndicator.report_date.asc()).all()
+
+        if not records:
+            return pd.DataFrame()
+
+        df = pd.DataFrame([r.__dict__ for r in records])
+        if '_sa_instance_state' in df.columns:
+            df.drop('_sa_instance_state', axis=1, inplace=True)
+        return df
+
+
     # ==========================
     # 下载一整年所有 5 张报表
     # ==========================
@@ -420,7 +558,7 @@ class StatementDownload:
         self.download_performance(year)
         self.download_dividend(year)
     
-     # ==========================
+    # ==========================
     # 查看数据库统计
     # ==========================
     def check_db(self):
@@ -431,6 +569,7 @@ class StatementDownload:
             print("balance:", session.query(Balance).count())
             print("performance:", session.query(Performance).count())
             print("dividend:", session.query(Dividend).count())
+            print("financial_indicator:", session.query(FinancialIndicator).count())
 
 
 # ==========================
@@ -445,4 +584,10 @@ if __name__ == "__main__":
         time.sleep(1)
 
     st.check_db()
+
+    # 示例：下载 600519 财务指标
+    print("\n===== 下载财务指标 =====")
+    st.download_financial_indicator("600519")
+    st.download_financial_indicator("600900")
+    st.download_financial_indicator("600699")
     print("\n🎉 全部完成")

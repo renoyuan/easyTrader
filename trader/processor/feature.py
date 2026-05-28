@@ -1,18 +1,17 @@
-r"""
-#!/usr/bin/env python
--*- coding: utf-8 -*-
-PROJECT_NAME: F:\opensource\easyTrader\trader\processor
-CREATE_TIME: 2026-05-11 
-E_MAIL: renoyuan@foxmail.com
-AUTHOR: reno 
-note:  财务清洗 + 指标计算 财务清洗和指标计算模块
-"""
+# -*- coding: utf-8 -*-
+# PROJECT_NAME:  __init__.py.py
+# CREATE_TIME: 2025/5/21 10:58
+# E_MAIL: renoyuan@foxmail.com
+# AUTHOR: reno
+# NOTE: 财务清洗 + 指标计算 财务清洗和指标计算模块
+
 
 
 import pandas as pd
 import numpy as np
 from typing import Dict, Optional, List, Tuple
 from trader.data.statement import StatementDownload
+from trader.data.orm import SessionLocal, StockBasic
 
 
 class StockFeatureProcessor:
@@ -137,6 +136,17 @@ class StockFeatureProcessor:
 
         return indicators
 
+    def get_stock_name(self, code: str) -> str:
+        """从 stock_basic 表获取股票名称，失败时返回 code"""
+        try:
+            with SessionLocal() as session:
+                row = session.query(StockBasic).filter(StockBasic.code == code).first()
+                if row and row.name:
+                    return row.name
+        except Exception:
+            pass
+        return code
+
     def calculate_yearly_features(self, code: str, years: Optional[List[int]] = None) -> pd.DataFrame:
         """
         逐年计算特征，返回 DataFrame（每年一行，按年份升序）
@@ -169,13 +179,66 @@ class StockFeatureProcessor:
         df['经营现金流/净利润'] = df['operating_cashflow'] / df['net_profit']
         df['净利润增长率'] = df['net_profit'].pct_change()
 
+        # 保留原始金额字段（供 XuBinScorer 等使用）
+        df['净利润'] = df['net_profit']
+        df['营业收入'] = df['total_revenue']
+        df['应收账款'] = df['accounts_receivable']
+        df['经营活动现金流净额'] = df['operating_cashflow']
+        df['存货'] = df['inventory']
+
+        # 补充毛利率（从 akshare 主营构成接口获取）
+        # df['毛利率'] = self._fill_gross_margin(code, df)
+        # 改为用新浪财务指标接口补充更多数据
+        df = self._fill_sina_financial_indicators(code, df)
+
         result_cols = ['year', 'report_date', 'ROE', '净利润率', '资产负债率',
-                       '经营现金流/净利润', '净利润增长率']
+                       '经营现金流/净利润', '净利润增长率', '毛利率',
+                       '存货周转率', '应收账款周转率',
+                       '净利润', '营业收入', '应收账款', '经营活动现金流净额', '存货']
         keep = [c for c in result_cols if c in df.columns]
         result = df[keep].copy()
         # 确保 year 是纯整数类型
         result['year'] = result['year'].astype(int)
         return result.sort_values('year').reset_index(drop=True)
+
+    def _fill_sina_financial_indicators(self, code: str, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        从 financial_indicator 表补充财务指标（毛利率、存货周转率等）。
+        若数据不存在则自动触发下载。
+        """
+        try:
+            ind_df = self.data_service.get_financial_indicator_df(code)
+            if ind_df.empty:
+                return df
+
+            # 提取需要的列映射（数据库字段 -> yearly 输出列名）
+            col_map = {
+                "gross_margin": "毛利率",          # 销售毛利率(%)
+                "inventory_turnover": "存货周转率",  # 存货周转率(次)
+                "ar_turnover": "应收账款周转率",     # 应收账款周转率(次)
+                "net_profit_margin": "销售净利率",
+                "current_ratio": "流动比率",
+                "quick_ratio": "速动比率",
+            }
+
+            # 按年聚合（同一年可能有多个报告期）
+            agg = ind_df.groupby("year").mean(numeric_only=True).reset_index()
+            agg["year"] = agg["year"].astype(int)
+
+            for db_col, out_col in col_map.items():
+                if db_col in agg.columns:
+                    vals = agg[db_col].dropna()
+                    if not vals.empty:
+                        # sina 百分比值转为小数（如 40.5 -> 0.405）
+                        if db_col in ("gross_margin", "net_profit_margin"):
+                            vals = vals / 100.0
+                        year_map = agg.set_index("year")[db_col]
+                        df[out_col] = df["year"].map(year_map)
+
+            return df
+        except Exception as e:
+            print(f"  补充财务指标异常: {e}")
+            return df
 
     # 可扩展：添加更多特征工程方法，如标准化、打分、因子生成等
 

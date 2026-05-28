@@ -70,13 +70,17 @@ class GrahamScorer:
     # =========================
     def score(self, code, years=5):
 
+        print(f"[graham] 开始评分: {code}")
         current_year = datetime.now().year
         years_list = list(range(current_year - years, current_year + 1))
+        print(f"[graham] 计算财务指标...")
 
         yearly = self.proc.calculate_yearly_features(code, years_list)
 
         if yearly.empty:
+            print(f"[graham] 财务指标数据不足: {code}")
             return None
+        print(f"[graham] 财务指标完成, {len(yearly)} 行")
 
         # 只对数值列求均值，跳过 year/report_date 等非数值列
         num_cols = yearly.select_dtypes(include=[np.number]).columns
@@ -87,6 +91,7 @@ class GrahamScorer:
         # =========================
         # 1. PE（核心）
         # =========================
+        print(f"[graham] 获取估值...")
         val = self.get_valuation(code)
 
         if val:
@@ -107,6 +112,7 @@ class GrahamScorer:
                 score += 15
             elif pb < 2:
                 score += 5
+        print(f"[graham] 估值完成: PE={val.get('pe') if val else None}")
 
         # =========================
         # 2. 盈利稳定性（不追求增长）
@@ -160,6 +166,7 @@ class GrahamScorer:
 
         return {
             "code": code,
+            "name": self.proc.get_stock_name(code),
             "score": score,
             "pe": val["pe"] if val else None,
             "pb": val["pb"] if val else None,

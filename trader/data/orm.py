@@ -2,24 +2,13 @@
 SQLAlchemy ORM模型定义
 数据库：股票财务报表 + 基础信息 + K线数据表
 """
-import os
+import os,sys
 from sqlalchemy import create_engine
 from sqlalchemy import Column, String, Float, Integer, Text, Date, DateTime, BigInteger, VARCHAR
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
 
 Base = declarative_base()
-
-# ==========================
-# 数据库连接配置（使用项目内绝对路径以避免工作目录导致的路径问题）
-# ==========================
-DB_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'db', 'stock_data.sqlite'))
-DB_DIR = os.path.dirname(DB_FILE)
-os.makedirs(DB_DIR, exist_ok=True)
-DB_PATH = f"sqlite:///{DB_FILE.replace('\\', '/')}"
-# SQLite 在多线程/多session下可能需要关闭同一线程校验
-engine = create_engine(DB_PATH, echo=False, future=True, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 # ==========================
@@ -151,6 +140,30 @@ class Performance(Base):
 # ==========================
 # 分红送配表（股息）
 # ==========================
+# ==========================
+# 数据库连接配置（支持 pyinstaller 打包后路径）
+# ==========================
+def _get_db_path():
+    """统一数据库路径：打包后找 exe 同级的 db/ 目录"""
+    if getattr(sys, 'frozen', False):
+        # pyinstaller 打包环境
+        base = os.path.dirname(sys.executable)
+    else:
+        # 开发环境
+        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    db_dir = os.path.join(base, 'db')
+    os.makedirs(db_dir, exist_ok=True)
+    return os.path.join(db_dir, 'stock_data.sqlite')
+
+DB_FILE = _get_db_path()
+DB_DIR = os.path.dirname(DB_FILE)
+os.makedirs(DB_DIR, exist_ok=True)
+DB_backslash = chr(92)
+DB_PATH = f"sqlite:///{DB_FILE.replace(DB_backslash, '/')}"
+# SQLite 在多线程/多session下可能需要关闭同一线程校验
+engine = create_engine(DB_PATH, echo=False, future=True, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
 class Dividend(Base):
     __tablename__ = 'dividend'
     code = Column(String, primary_key=True, comment="股票代码")
@@ -175,6 +188,50 @@ class Dividend(Base):
     plan_status = Column(String, nullable=True, comment="方案进度")
     last_announce_date = Column(String, primary_key=True, comment="最新公告日期")
 
+
+# ==========================
+# 财务指标表（新浪财经财务分析指标离线缓存）
+# ==========================
+class FinancialIndicator(Base):
+    """新浪财经-财务指标，按(stock_code, report_date)去重"""
+    __tablename__ = "financial_indicator"
+
+    code = Column(String(20), primary_key=True, comment="股票代码")
+    report_date = Column(String(10), primary_key=True, comment="报告日期（如 2024-12-31）")
+    year = Column(Integer, nullable=True, comment="年份")
+
+    # ── 盈利能力 ──
+    roe = Column(Float, nullable=True, comment="净资产收益率(%)")
+    roa = Column(Float, nullable=True, comment="总资产净利润率(%)")
+    gross_margin = Column(Float, nullable=True, comment="销售毛利率(%)")
+    net_profit_margin = Column(Float, nullable=True, comment="销售净利率(%)")
+    operating_margin = Column(Float, nullable=True, comment="营业利润率(%)")
+
+    # ── 运营效率 ──
+    inventory_turnover = Column(Float, nullable=True, comment="存货周转率(次)")
+    ar_turnover = Column(Float, nullable=True, comment="应收账款周转率(次)")
+    total_asset_turnover = Column(Float, nullable=True, comment="总资产周转率(次)")
+
+    # ── 偿债能力 ──
+    current_ratio = Column(Float, nullable=True, comment="流动比率")
+    quick_ratio = Column(Float, nullable=True, comment="速动比率")
+    debt_ratio_sina = Column(Float, nullable=True, comment="资产负债率(%)")
+
+    # ── 现金流 ──
+    ocf_to_profit = Column(Float, nullable=True, comment="经营现金净流量与净利润的比率(%)")
+    ocf_to_revenue = Column(Float, nullable=True, comment="经营现金净流量对销售收入比率(%)")
+
+    # ── 增长 ──
+    revenue_growth = Column(Float, nullable=True, comment="主营业务收入增长率(%)")
+    profit_growth = Column(Float, nullable=True, comment="净利润增长率(%)")
+    asset_growth = Column(Float, nullable=True, comment="总资产增长率(%)")
+
+    # ── 每股指标 ──
+    eps = Column(Float, nullable=True, comment="摊薄每股收益(元)")
+    navps = Column(Float, nullable=True, comment="每股净资产(元)")
+    ocfps = Column(Float, nullable=True, comment="每股经营性现金流(元)")
+
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
 
 
 # ==========================
@@ -205,6 +262,17 @@ def create_stock_table_class(code: str):
 # ==========================
 def init_db():
     Base.metadata.create_all(engine)
-    
+
+
+# 模块导入时自动建表（关键：无论开发环境还是 exe 都会执行）
+init_db()
+
+
 if __name__ == "__main__":
-    init_db()
+    print(f"✅ 数据库路径: {DB_FILE}")
+    print(f"✅ 数据库大小: {os.path.getsize(DB_FILE) / 1024 / 1024:.1f} MB")
+    # 校验所有表是否存在
+    from sqlalchemy import inspect
+    insp = inspect(engine)
+    tables = insp.get_table_names()
+    print(f"✅ 已建表: {tables}")

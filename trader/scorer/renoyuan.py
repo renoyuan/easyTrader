@@ -247,6 +247,7 @@ class RenoyuanScorer:
 
         return {
             "code": code,
+            "name": self.proc.get_stock_name(code),
             "score": score,
             "rating": rating,
             "confidence": confidence,

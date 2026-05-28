@@ -17,5 +17,6 @@ from .buffett import *
 from .graham import *
 from .xuxiang import *
 from .renoyuan import RenoyuanScorer
+from .xubin import XuBinScorer
 
-__all__ = ["buffett", "graham", "xuxiang", "RenoyuanScorer"]
+__all__ = ["buffett", "graham", "xuxiang", "RenoyuanScorer", "XuBinScorer"]

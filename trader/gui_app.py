@@ -1,12 +1,17 @@
+# -*- coding: utf-8 -*-
+
+import sys
+import os
+# 强制全局中文不乱码
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+os.environ["PYTHONIOENCODING"] = "utf-8"
 """
 easyTrader 启动入口
 ====================
 保持与原有 gui_app.py 相同的调用方式（from trader.gui_app import main），
 实际界面逻辑拆入 trader/gui/ 模块。
 """
-import sys
-import os
-
 # 确保项目根目录在 sys.path 中
 _app_root = os.path.dirname(os.path.dirname(__file__))
 if _app_root not in sys.path:
@@ -18,6 +23,27 @@ from trader.gui import EasyTraderGUI
 
 
 def main() -> None:
+    # 🔍 调试：打印实际数据库路径
+    import sys, os
+    print(f"[DEBUG] sys.frozen = {getattr(sys, 'frozen', False)}")
+    print(f"[DEBUG] sys.executable = {getattr(sys, 'executable', 'N/A')}")
+    print(f"[DEBUG] sys.argv = {sys.argv}")
+    try:
+        from trader.data.orm import DB_FILE, init_db
+        print(f"[DEBUG] DB_FILE = {DB_FILE}")
+        print(f"[DEBUG] DB exists = {os.path.exists(DB_FILE)}")
+        if os.path.exists(DB_FILE):
+            print(f"[DEBUG] DB size = {os.path.getsize(DB_FILE) / 1024 / 1024:.1f} MB")
+        # 检查表中数据
+        from trader.data.orm import SessionLocal, Income
+        with SessionLocal() as sess:
+            cnt = sess.query(Income).count()
+            print(f"[DEBUG] income 表记录数 = {cnt}")
+    except Exception as e:
+        print(f"[DEBUG] DB init error: {e}")
+        import traceback
+        traceback.print_exc()
+
     root = tk.Tk()
     try:
         app = EasyTraderGUI(root)

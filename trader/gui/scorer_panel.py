@@ -12,6 +12,7 @@ from trader.scorer.buffett import BuffettScorer
 from trader.scorer.graham import GrahamScorer
 from trader.scorer.xuxiang import XuXiangScorer
 from trader.scorer.renoyuan import RenoyuanScorer
+from trader.scorer.xubin import XuBinScorer
 from trader.ai import DeepSeekClient
 
 
@@ -39,6 +40,12 @@ SCORER_REGISTRY = {
         "icon": "🏦",
         "scorer_class": RenoyuanScorer,
         "color": "#0f9d58",
+        "method": "score",
+    },
+    "xubin财报排雷评分": {
+        "icon": "🚨",
+        "scorer_class": XuBinScorer,
+        "color": "#e74c3c",
         "method": "score",
     },
 }
@@ -97,12 +104,13 @@ class ScorerPanel:
             foreground=[("readonly", "#202124")],
         )
 
-        # 带图标的下拉选项
+                # 带图标的下拉选项
         display_names = [
             "🧑‍💼  巴菲特价值评分",
             "📐  格雷厄姆价值评分",
             "🔥  徐翔趋势评分",
             "🏦  renoyuan核心评分",
+            "🚨  xubin财报排雷评分",
         ]
         self._combo = ttk.Combobox(
             selector_frame,
@@ -121,6 +129,7 @@ class ScorerPanel:
             "📐  格雷厄姆价值评分": "格雷厄姆价值评分",
             "🔥  徐翔趋势评分": "徐翔趋势评分",
             "🏦  renoyuan核心评分": "renoyuan核心评分",
+            "🚨  xubin财报排雷评分": "xubin财报排雷评分",
         }
 
     def _on_select(self, event=None) -> None:
@@ -173,9 +182,12 @@ class ScorerPanel:
                 "徐翔趋势评分": (self._append_xuxiang_result, self._fill_tree_xuxiang,
                             "徐翔趋势交易评分体系：基于动量、成交量放大、连续上涨、突破新高、波动率等短期交易因子",
                             lambda r: f"综合总分：{r['score']}/100\n10日动量：{r.get('momentum','N/A')}%\n交易评级：{r['rating']}"),
-                "renoyuan核心评分": (self._append_renoyuan_result, self._fill_tree_renoyuan,
+                                "renoyuan核心评分": (self._append_renoyuan_result, self._fill_tree_renoyuan,
                                 "renoyuan 核心评分体系：以股息率为最高权重，结合 ROE 稳定性、经营现金流持续性、低波动、低负债和合理估值的红利低波策略",
                                 lambda r: f"综合总分：{r['score']}/100\n股息率：{r['indicators'].get('股息率','N/A')}\nROE：{r['indicators'].get('ROE','N/A')}\n可信度：{r.get('confidence','N/A')}\n投资评级：{r['rating']}"),
+                "xubin财报排雷评分": (self._append_xubin_result, self._fill_tree_xubin,
+                                "xubin 财报排雷评分体系：基于利润含金量、收入真实性、毛利率合理性、存货健康度、负债风险等因子进行财务造假风险筛查",
+                                lambda r: f"综合总分：{r['score']}/100\n风险评级：{r['rating']}\n可信度：{r.get('confidence','N/A')}\n是否高危：{r.get('high_risk','N/A')}"),
             }
             append_fn, tree_fn, system_intro, summary_fn = dispatch_map.get(system, (None, None, "", None))
             if append_fn:
@@ -183,19 +195,29 @@ class ScorerPanel:
             if tree_fn:
                 tree_fn(res)
 
-            # ── AI 点评 ──
+                        # ── AI 点评（先出评分结果，再问是否继续） ──
             self._info(f"\n{'─'*45}")
-            self._info("🤖 DeepSeekAI 第三方点评")
+            self._info("🤖 是否需要 DeepSeekAI 第三方点评？")
             self._info(f"{'─'*45}")
             try:
                 ai = DeepSeekClient()
-                if ai.is_ready:
-                    summary = summary_fn(res) if summary_fn else f"总分: {res['score']}/100"
-                    analysis = ai.analyze_scorer_result(system, system_intro, summary)
-                    self._info(f"\n{analysis}\n")
-                else:
+                if not ai.is_ready:
                     self._info("  ⚠️ DeepSeek API Key 未配置，跳过 AI 点评\n"
                                "    请在左侧操作面板 → 设置 DeepSeek Key")
+                else:
+                    do_ai = messagebox.askyesno(
+                        "AI 点评",
+                        f"当前 {system} 评分已完成，是否调用 DeepSeekAI 进行第三方点评？\n\n"
+                        f"评分结果：{res['score']}/100\n评级：{res['rating']}",
+                        icon='question'
+                    )
+                    if do_ai:
+                        summary = summary_fn(res) if summary_fn else f"总分: {res['score']}/100"
+                        self._info("  调用 DeepSeekAI 进行点评...")
+                        analysis = ai.analyze_scorer_result(system, system_intro, summary)
+                        self._info(f"\n{analysis}\n")
+                    else:
+                        self._info("  跳过 AI 点评\n")
             except Exception as e:
                 self._info(f"  ⚠️ AI 点评异常: {e}")
 
@@ -236,7 +258,8 @@ class ScorerPanel:
     #  文本输出
     # ────────────────────────────────
     def _append_buffett_result(self, res: dict) -> None:
-        self._info(f"\n股票代码: {res['code']}")
+        full_name = f"{res['code']} {res.get('name', '')}"
+        self._info(f"\n股票: {full_name}")
         self._info(f"🧑‍💼 巴菲特评分")
         self._info(f"  ├ 质地趋势分: {res['base']} / 80")
         self._info(f"  ├ 估值评分:   {res['val_score']} / 20")
@@ -245,14 +268,28 @@ class ScorerPanel:
         self._info(f"估值状态: {res['val_label']}")
         self._info(f"投资评级: {res['rating']}")
         self._info(f"{'─'*45}")
+        # 定义：哪些是比率（小数），哪些是倍数/次数
+        ratio_keys = {'ROE', '净利润率', '资产负债率', '经营现金流/净利润', '净利润增长率',
+                      '毛利率', '销售净利率', '流动比率', '速动比率'}
+        turnover_keys = {'存货周转率', '应收账款周转率', '总资产周转率'}
         for k, v in res["indicators"].items():
             if pd.isna(v):
                 continue
-            self._info(f"{k:<20} {v:.2%}")
+            if k in ratio_keys:
+                self._info(f"{k:<20} {v:.2%}")
+            elif k in turnover_keys:
+                self._info(f"{k:<20} {v:.2f} 次")
+            else:
+                # 金额或其他数值
+                if abs(v) > 1e8:
+                    self._info(f"{k:<20} {v:.2e} 元")
+                else:
+                    self._info(f"{k:<20} {v:.4f}")
         self._info(f"{'='*50}\n")
 
     def _append_graham_result(self, res: dict) -> None:
-        self._info(f"\n股票代码: {res['code']}")
+        full_name = f"{res['code']} {res.get('name', '')}"
+        self._info(f"\n股票: {full_name}")
         self._info(f"📐 格雷厄姆评分")
         self._info(f"  └ 综合总分: {res['score']} / 100")
         self._info(f"\n投资评级: {res['rating']}")
@@ -273,7 +310,8 @@ class ScorerPanel:
         self._info(f"{'='*50}\n")
 
     def _append_xuxiang_result(self, res: dict) -> None:
-        self._info(f"\n股票代码: {res['code']}")
+        full_name = f"{res['code']} {res.get('name', '')}"
+        self._info(f"\n股票: {full_name}")
         self._info(f"🔥 徐翔趋势评分")
         self._info(f"  └ 综合总分: {res['score']} / 100")
         if res.get("momentum") is not None:
@@ -294,7 +332,8 @@ class ScorerPanel:
     # ── renoyuan 核心评分 ──
 
     def _append_renoyuan_result(self, res: dict) -> None:
-        self._info(f"\n股票代码: {res['code']}")
+        full_name = f"{res['code']} {res.get('name', '')}"
+        self._info(f"\n股票: {full_name}")
         self._info(f"🏦 renoyuan 核心评分")
         self._info(f"  └ 综合总分: {res['score']} / 100")
         self._info(f"\n投资评级: {res['rating']}")
@@ -312,6 +351,54 @@ class ScorerPanel:
             else:
                 self._info(f"{k:<20} {v:.2f}")
         self._info(f"{'='*50}\n")
+
+    # ── xubin 财报排雷评分 ──
+
+    def _append_xubin_result(self, res: dict) -> None:
+        full_name = f"{res['code']} {res.get('name', '')}"
+        self._info(f"\n股票: {full_name}")
+        self._info(f"🚨 xubin 财报排雷评分")
+        self._info(f"  └ 综合总分: {res['score']} / 100")
+        self._info(f"\n风险评级: {res['rating']}")
+        self._info(f"评分可信度: {res.get('confidence', 'N/A')}")
+        if res.get("high_risk"):
+            self._info(f"🚨 高危预警：此公司财务存在严重风险！")
+        if res.get("warnings"):
+            self._info(f"⚠️ 风险警告:")
+            for w in res["warnings"]:
+                self._info(f"   - {w}")
+        self._info(f"{'─'*45}")
+        for k, v in res["indicators"].items():
+            if v is None or pd.isna(v):
+                continue
+            if "率" in k or "毛利率" in k:
+                self._info(f"{k:<28} {v:.2%}")
+            elif "含金量" in k:
+                self._info(f"{k:<28} {v:.2f}")
+            else:
+                self._info(f"{k:<28} {v:.2f}")
+        self._info(f"{'='*50}\n")
+
+    def _fill_tree_xubin(self, res: dict) -> None:
+        score = res["score"]
+        confidence = res.get("confidence", "")
+        high_risk = res.get("high_risk", False)
+        rating = "🚨 高危" if high_risk else res["rating"]
+        rows = [
+            ("🚨 xubin财报排雷", f"{score}/100", rating),
+            ("   ├ 可信度", confidence, ""),
+        ]
+        for k, v in res["indicators"].items():
+            if v is None or pd.isna(v):
+                continue
+            label = k[:18]  # 截断过长字段名
+            if "率" in k or "毛利率" in k:
+                rows.append((f"   ├ {label}", f"{v:.2%}", ""))
+            elif "含金量" in k:
+                rows.append((f"   ├ {label}", f"{v:.2f}", ""))
+            else:
+                rows.append((f"   ├ {label}", f"{v:.2f}", ""))
+        self._update_tree(rows)
 
     def _fill_tree_renoyuan(self, res: dict) -> None:
         score = res["score"]
@@ -336,6 +423,9 @@ class ScorerPanel:
             ("   ├ 质地趋势分", f"{res['base']}/80", res["trend_label"]),
             ("   ├ 估值评分", f"{res['val_score']}/20", res["val_label"]),
         ]
+        ratio_keys = {'ROE', '净利润率', '资产负债率', '经营现金流/净利润', '净利润增长率',
+                      '毛利率', '销售净利率', '流动比率', '速动比率'}
+        turnover_keys = {'存货周转率', '应收账款周转率', '总资产周转率'}
         for k, v in res["indicators"].items():
             if pd.isna(v):
                 continue
@@ -344,7 +434,13 @@ class ScorerPanel:
                 "资产负债率": "资产负债率", "经营现金流/净利润": "经营现金流/净利润",
                 "净利润增长率": "净利润增长率",
             }
-            rows.append((f"   ├ {label_map.get(k, k)}", f"{v:.2%}", ""))
+            label = label_map.get(k, k)
+            if k in ratio_keys:
+                rows.append((f"   ├ {label}", f"{v:.2%}", ""))
+            elif k in turnover_keys:
+                rows.append((f"   ├ {label}", f"{v:.2f} 次", ""))
+            else:
+                rows.append((f"   ├ {label}", f"{v:.4f}", ""))
         self._update_tree(rows)
 
     def _fill_tree_graham(self, res: dict) -> None:
