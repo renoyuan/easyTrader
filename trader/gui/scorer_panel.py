@@ -3,16 +3,19 @@
 =============
 将巴菲特、格雷厄姆、徐翔合并为一个下拉选择框，
 选择评分体系后点击「开始评分」执行对应策略。
+新增：全市场批量评分扫描功能
 """
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, ttk, simpledialog
 import pandas as pd
+import threading
 
 from trader.scorer.buffett import BuffettScorer
 from trader.scorer.graham import GrahamScorer
 from trader.scorer.xuxiang import XuXiangScorer
 from trader.scorer.renoyuan import RenoyuanScorer
 from trader.scorer.xubin import XuBinScorer
+from trader.scorer.market_scanner import MarketScanner, format_top_results
 from trader.ai import DeepSeekClient
 
 
@@ -463,4 +466,448 @@ class ScorerPanel:
             ("   ├ 10日动量", momentum, ""),
             ("   ├ 趋势判断", "", explanation),
         ])
+
+    # ════════════════════════════════════════
+    #  全市场批量评分扫描
+    # ════════════════════════════════════════
+    def run_market_scan(self, parent_root: tk.Tk) -> None:
+        """
+        打开全市场评分扫描对话框
+        :param parent_root: 主窗口 root，用于创建进度弹窗
+        """
+        system = self._get_system()
+        info = SCORER_REGISTRY.get(system)
+        if not info:
+            messagebox.showerror("错误", f"未找到评分体系: {system}")
+            return
+
+                # ── 弹出选择对话框（多选框 + 自定义股票输入 + 确认按钮） ──
+        dialog = MarketScanDialog(parent_root, system)
+        parent_root.wait_window(dialog.top)
+
+        if not dialog.result:
+            return
+
+        markets = dialog.result.get("markets")  # list of market codes or None
+        custom_codes = dialog.result.get("custom_codes")  # list of stock codes or None
+        top_n = dialog.result["top_n"]
+
+        # ── 创建进度条窗口 ──
+        progress_win = tk.Toplevel(parent_root)
+        progress_win.title(f"🔍 扫描中 - {system}")
+        progress_win.geometry("520x240")
+        progress_win.configure(bg="#ffffff")
+        progress_win.resizable(False, False)
+        progress_win.transient(parent_root)
+        progress_win.grab_set()
+
+        # 居中
+        progress_win.update_idletasks()
+        x = parent_root.winfo_x() + (parent_root.winfo_width() - 520) // 2
+        y = parent_root.winfo_y() + (parent_root.winfo_height() - 200) // 2
+        progress_win.geometry(f"+{x}+{y}")
+
+        # 标题
+        if custom_codes:
+            label_text = f"🔍 {system} - 自定义 {len(custom_codes)} 只股票"
+        else:
+            market_label = "全市场" if "ALL" in markets else "+".join(markets)
+            label_text = f"🔍 {system} - {market_label}"
+
+        # 进度标签
+        progress_label = tk.Label(
+            progress_win,
+            text="初始化...",
+            font=("微软雅黑", 10),
+            bg="#ffffff", fg="#5f6368",
+            wraplength=480
+        )
+        progress_label.pack(pady=(4, 8))
+
+        # 进度条
+        progress_bar = ttk.Progressbar(
+            progress_win,
+            orient=tk.HORIZONTAL,
+            length=460,
+            mode='determinate'
+        )
+        progress_bar.pack(pady=4)
+
+        # 状态标签
+        status_label = tk.Label(
+            progress_win,
+            text="",
+            font=("微软雅黑", 9),
+            bg="#ffffff", fg="#ea4335"
+        )
+        status_label.pack(pady=(4, 8))
+
+        # 停止按钮
+        stop_btn = tk.Button(
+            progress_win,
+            text="⏹ 停止扫描",
+            command=None,  # 稍后设置
+            bg="#ea4335", fg="white",
+            font=("微软雅黑", 10, "bold"),
+            relief=tk.FLAT, bd=0,
+            cursor="hand2",
+            padx=16, pady=4
+        )
+        stop_btn.pack(pady=4)
+
+        # ── 启动扫描线程 ──
+        scanner = MarketScanner()
+
+        def on_stop():
+            scanner.stop()
+            stop_btn.config(text="正在停止...", state=tk.DISABLED)
+
+        stop_btn.config(command=on_stop)
+
+        def update_progress(current, total, stock_name):
+            progress_bar["value"] = current
+            progress_bar["maximum"] = total
+            pct = current / total * 100 if total > 0 else 0
+            progress_label.config(
+                text=f"正在扫描: {stock_name}\n进度: {current}/{total} ({pct:.1f}%)"
+            )
+            progress_win.update()
+
+        def log_msg(msg):
+            self._info(msg)
+            status_label.config(text=msg[-60:] if len(msg) > 60 else msg)
+            progress_win.update()
+
+        def on_result(results):
+            progress_win.destroy()
+            if results:
+                # 输出 TOP 结果到文本区
+                formatted = format_top_results(results, system)
+                self._info(formatted)
+
+                # 填充表格
+                tree_rows = []
+                for i, r in enumerate(results, 1):
+                    code = r.get("code", "")
+                    name = r.get("name", "")
+                    score = r.get("score", 0)
+                    rating = r.get("rating", "")
+                    medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"#{i}"
+                    tree_rows.append((f"{medal} {name}({code})", f"{score}/100", rating))
+                self._update_tree(tree_rows)
+
+                # 添加历史
+                for r in results[:3]:
+                    self._add_history(
+                        f"{r.get('code','')} ({r.get('name','')})",
+                        system,
+                        r.get("score", 0),
+                        r.get("rating", "")
+                    )
+
+                self._set_status(f"🏆 扫描完成, TOP{len(results)}", True)
+                self._select_tab(0)
+            else:
+                self._info("❌ 扫描完成，但未获取到有效评分结果")
+            self._set_status("扫描完成，无结果", False)
+
+        def scan_thread():
+            try:
+                if custom_codes:
+                    scanner.scan_custom(
+                        codes=custom_codes,
+                        scorer_name=system,
+                        top_n=top_n,
+                        progress_callback=update_progress,
+                        result_callback=on_result,
+                        log_callback=log_msg,
+                    )
+                else:
+                    scanner.scan(
+                        markets=markets,
+                        scorer_name=system,
+                        top_n=top_n,
+                        progress_callback=update_progress,
+                        result_callback=on_result,
+                        log_callback=log_msg,
+                    )
+            except Exception as e:
+                import traceback
+                err_msg = str(e)
+                traceback.print_exc()
+                progress_win.after(0, lambda em=err_msg: (
+                    progress_win.destroy(),
+                    self._info(f"❌ 扫描异常: {em}"),
+                    self._set_status("扫描异常", False)
+                ))
+
+        t = threading.Thread(target=scan_thread, daemon=True)
+        t.start()
+
+
+class MarketScanDialog:
+    """全市场评分扫描参数选择对话框（多选框 + 自定义股票输入 + 确定/取消按钮）"""
+
+    def __init__(self, parent: tk.Tk, system: str):
+        self.result = None
+        self.top = tk.Toplevel(parent)
+        self.top.title("📊 全市场评分扫描")
+        self.top.geometry("520x560")
+        self.top.configure(bg="#ffffff")
+        self.top.resizable(False, False)
+        self.top.transient(parent)
+        self.top.grab_set()
+
+        # 居中
+        self.top.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() - 520) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - 560) // 2
+        self.top.geometry(f"+{x}+{y}")
+
+        # ── 标题 ──
+        tk.Label(
+            self.top,
+            text="📊 全市场批量评分扫描",
+            font=("微软雅黑", 14, "bold"),
+            bg="#ffffff", fg="#202124"
+        ).pack(pady=(16, 4))
+
+        tk.Label(
+            self.top,
+            text=f"评分体系: {system}",
+            font=("微软雅黑", 10),
+            bg="#ffffff", fg="#5f6368"
+        ).pack(pady=(0, 6))
+
+        # ══════════════════════════════════════
+        #  模式一：按市场扫描
+        # ══════════════════════════════════════
+        tk.Label(
+            self.top,
+            text="━━━ 方式一：按市场扫描 ━━━",
+            font=("微软雅黑", 9, "bold"),
+            bg="#ffffff", fg="#5f6368"
+        ).pack(fill=tk.X, padx=20, pady=(2, 2))
+
+        # 多选框变量
+        self.var_all = tk.BooleanVar(value=True)  # 默认全市场
+        self.var_sh = tk.BooleanVar(value=False)
+        self.var_sz = tk.BooleanVar(value=False)
+        self.var_cyb = tk.BooleanVar(value=False)
+        self.var_kcb = tk.BooleanVar(value=False)
+        self.var_bj = tk.BooleanVar(value=False)
+
+        # 多选框容器
+        cb_frame = tk.Frame(self.top, bg="#ffffff")
+        cb_frame.pack(fill=tk.X, padx=20)
+
+        # "全市场" 特殊：选中则禁用其他选项
+        self.cb_all = tk.Checkbutton(
+            cb_frame, text="☑ 全市场（沪市+深市+创业板+科创板）",
+            variable=self.var_all,
+            font=("微软雅黑", 10),
+            bg="#ffffff", fg="#1a73e8",
+            selectcolor="#ffffff",
+            activebackground="#ffffff",
+            anchor=tk.W,
+            command=self._on_all_toggle,
+        )
+        self.cb_all.pack(fill=tk.X, pady=1)
+
+        ttk.Separator(cb_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=2)
+
+        # 各市场多选框（保存引用以便禁用/启用）
+        self.cb_sh = self._create_checkbtn(cb_frame, "沪市主板（60/68开头）", self.var_sh, self._on_market_toggle)
+        self.cb_sz = self._create_checkbtn(cb_frame, "深市主板（00开头）", self.var_sz, self._on_market_toggle)
+        self.cb_cyb = self._create_checkbtn(cb_frame, "创业板（300开头）", self.var_cyb, self._on_market_toggle)
+        self.cb_kcb = self._create_checkbtn(cb_frame, "科创板（688开头）", self.var_kcb, self._on_market_toggle)
+        self.cb_bj = self._create_checkbtn(cb_frame, "北交所（8/9开头 - 数据不全慎选）", self.var_bj, self._on_market_toggle)
+
+        # 初始状态：全市场勾选，禁用子市场
+        self._set_sub_state(tk.DISABLED)
+
+        # ══════════════════════════════════════
+        #  模式二：自定义股票代码
+        # ══════════════════════════════════════
+        tk.Label(
+            self.top,
+            text="━━━ 方式二：自定义股票代码（输入后优先使用） ━━━",
+            font=("微软雅黑", 9, "bold"),
+            bg="#ffffff", fg="#5f6368"
+        ).pack(fill=tk.X, padx=20, pady=(6, 2))
+
+        hint_frame = tk.Frame(self.top, bg="#ffffff")
+        hint_frame.pack(fill=tk.X, padx=20)
+
+        tk.Label(
+            hint_frame,
+            text="输入 6 位股票代码，多个用逗号/空格/换行分隔",
+            font=("微软雅黑", 8),
+            bg="#ffffff", fg="#9e9e9e"
+        ).pack(anchor=tk.W)
+
+        # 文本输入框（带滚动条）
+        text_frame = tk.Frame(self.top, bg="#ffffff")
+        text_frame.pack(fill=tk.X, padx=20, pady=(2, 4))
+
+        self.custom_text = tk.Text(
+            text_frame,
+            font=("Consolas", 10),
+            height=3,
+            relief=tk.SOLID, bd=1,
+            padx=6, pady=4,
+            wrap=tk.WORD,
+        )
+        self.custom_text.pack(fill=tk.X)
+
+        # ══════════════════════════════════════
+        #  TOP N 选择
+        # ══════════════════════════════════════
+        top_frame2 = tk.Frame(self.top, bg="#ffffff")
+        top_frame2.pack(pady=6)
+
+        tk.Label(
+            top_frame2, text="输出前几名：",
+            font=("微软雅黑", 10, "bold"),
+            bg="#ffffff", fg="#202124"
+        ).pack(side=tk.LEFT, padx=(0, 10))
+
+        self.top_n_var = tk.IntVar(value=5)
+        for n in [3, 5, 10, 20]:
+            tk.Radiobutton(
+                top_frame2, text=f"Top {n}", value=n,
+                variable=self.top_n_var,
+                font=("微软雅黑", 10),
+                bg="#ffffff", selectcolor="#ffffff",
+                indicatoron=True
+            ).pack(side=tk.LEFT, padx=(0, 6))
+
+        # ── 提示 ──
+        tk.Label(
+            self.top,
+            text="⚠️ 全市场扫描可能需要 5~30 分钟，自定义扫描更快",
+            font=("微软雅黑", 9),
+            bg="#fff3e0", fg="#e65100",
+            justify=tk.CENTER,
+            padx=12, pady=6
+        ).pack(fill=tk.X, padx=30, pady=(2, 6))
+
+        # ── 确定按钮 ──
+        btn_frame = tk.Frame(self.top, bg="#ffffff")
+        btn_frame.pack(pady=6)
+
+        tk.Button(
+            btn_frame, text="✅ 确定开始扫描",
+            command=self._confirm,
+            bg="#1a73e8", fg="white",
+            font=("微软雅黑", 11, "bold"),
+            relief=tk.FLAT, bd=0,
+            cursor="hand2",
+            padx=20, pady=6
+        ).pack(side=tk.LEFT, padx=6)
+
+        tk.Button(
+            btn_frame, text="取消",
+            command=self._cancel,
+            bg="#9e9e9e", fg="white",
+            font=("微软雅黑", 10, "bold"),
+            relief=tk.FLAT, bd=0,
+            cursor="hand2",
+            padx=16, pady=6
+        ).pack(side=tk.LEFT, padx=6)
+
+    def _create_checkbtn(self, parent, text, var, command):
+        cb = tk.Checkbutton(
+            parent, text=text,
+            variable=var,
+            font=("微软雅黑", 9),
+            bg="#ffffff", fg="#202124",
+            selectcolor="#ffffff",
+            activebackground="#ffffff",
+            anchor=tk.W,
+            command=command,
+        )
+        cb.pack(fill=tk.X, pady=1)
+        return cb
+
+    def _set_sub_state(self, state):
+        """设置所有子市场 Checkbutton 的状态"""
+        for cb in [self.cb_sh, self.cb_sz, self.cb_cyb, self.cb_kcb, self.cb_bj]:
+            cb.config(state=state)
+
+    def _on_all_toggle(self):
+        """全市场勾选时，禁用子市场；取消全市场时启用"""
+        if self.var_all.get():
+            self._set_sub_state(tk.DISABLED)
+            for var in [self.var_sh, self.var_sz, self.var_cyb, self.var_kcb, self.var_bj]:
+                var.set(False)
+        else:
+            self._set_sub_state(tk.NORMAL)
+
+    def _on_market_toggle(self):
+        """任一子市场勾选时，取消全市场"""
+        if self.var_sh.get() or self.var_sz.get() or self.var_cyb.get() or self.var_kcb.get() or self.var_bj.get():
+            self.var_all.set(False)
+            self._set_sub_state(tk.NORMAL)
+        else:
+            # 全都没选时，自动勾回全市场
+            self.var_all.set(True)
+            self._set_sub_state(tk.DISABLED)
+
+    def _parse_custom_codes(self) -> list:
+        """从文本框中提取股票代码列表"""
+        raw = self.custom_text.get("1.0", tk.END).strip()
+        if not raw:
+            return []
+
+        # 用逗号、空格、换行分隔
+        import re
+        codes = re.split(r'[,，\s\n]+', raw)
+        # 过滤出 6 位数字代码
+        valid = [c.strip() for c in codes if c.strip().isdigit() and len(c.strip()) == 6]
+        return valid
+
+    def _confirm(self):
+        """确定开始扫描"""
+        # 优先检查自定义股票代码
+        custom_codes = self._parse_custom_codes()
+        if custom_codes:
+            self.result = {
+                "markets": None,
+                "custom_codes": custom_codes,
+                "top_n": self.top_n_var.get(),
+            }
+            self.top.destroy()
+            return
+
+        # 否则走市场选择
+        markets = []
+        if self.var_all.get():
+            markets = ["ALL"]
+        else:
+            if self.var_sh.get():
+                markets.append("SH")
+            if self.var_sz.get():
+                markets.append("SZ_MAIN")
+            if self.var_cyb.get():
+                markets.append("CYB")
+            if self.var_kcb.get():
+                markets.append("KCB")
+            if self.var_bj.get():
+                markets.append("BJ")
+
+            if not markets:
+                messagebox.showwarning("提示", "请至少选择一个市场，或输入自定义股票代码")
+                return
+
+        self.result = {
+            "markets": markets,
+            "custom_codes": None,
+            "top_n": self.top_n_var.get(),
+        }
+        self.top.destroy()
+
+    def _cancel(self):
+        self.result = None
+        self.top.destroy()
 

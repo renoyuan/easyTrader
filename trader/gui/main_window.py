@@ -117,18 +117,49 @@ class EasyTraderGUI:
             font=("微软雅黑", 9, "bold")
         ).pack(fill=tk.X, pady=(6, 4))
 
-        self._create_styled_button(
-            btn_frame, "📥  输入股票代码",
-            self.input_code, COLOR_PRIMARY
-        ).pack(fill=tk.X, pady=4)
+        # ── 输入股票代码 ──
+        tk.Button(
+            btn_frame, text="📥 输入代码",
+            command=self.input_code,
+            bg=COLOR_PRIMARY, fg="white",
+            font=("微软雅黑", 9, "bold"),
+            relief=tk.FLAT, bd=0,
+            cursor="hand2",
+            activebackground=COLOR_PRIMARY,
+            activeforeground="white",
+            padx=6, pady=4,
+        ).pack(fill=tk.X, pady=2)
 
         # 评分体系下拉框（在此处创建，渲染在按钮组内部）
         self.scorer.build_selector(btn_frame)
 
-        self._create_styled_button(
-            btn_frame, "🌟  开始评分",
-            self.scorer.run_scoring, COLOR_SUCCESS
-        ).pack(fill=tk.X, pady=4)
+        # ═══════ 并排两个按钮：开始评分 + 扫描市场 ═══════
+        action_frame = tk.Frame(btn_frame, bg=COLOR_CARD_BG)
+        action_frame.pack(fill=tk.X, pady=2)
+
+        tk.Button(
+            action_frame, text="🌟 开始评分",
+            command=self.scorer.run_scoring,
+            bg=COLOR_SUCCESS, fg="white",
+            font=("微软雅黑", 9, "bold"),
+            relief=tk.FLAT, bd=0,
+            cursor="hand2",
+            activebackground=COLOR_SUCCESS,
+            activeforeground="white",
+            padx=4, pady=5,
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        tk.Button(
+            action_frame, text="🔍 扫描市场",
+            command=lambda: self.scorer.run_market_scan(self.root),
+            bg="#ff6d00", fg="white",
+            font=("微软雅黑", 9, "bold"),
+            relief=tk.FLAT, bd=0,
+            cursor="hand2",
+            activebackground="#ff6d00",
+            activeforeground="white",
+            padx=4, pady=5,
+        ).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(4, 0))
 
         # ═══════════ 股神复盘 ═══════════
         tk.Label(
