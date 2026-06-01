@@ -142,26 +142,47 @@ class Performance(Base):
 # ==========================
 # ==========================
 # 数据库连接配置（支持 pyinstaller 打包后路径）
+# 支持 SQLite（默认）和 MySQL（通过 config.json 配置）
 # ==========================
-def _get_db_path():
-    """统一数据库路径：打包后找 exe 同级的 db/ 目录"""
+
+def _get_sqlite_path() -> str:
+    """SQLite 数据库文件路径"""
     if getattr(sys, 'frozen', False):
-        # pyinstaller 打包环境
         base = os.path.dirname(sys.executable)
     else:
-        # 开发环境
         base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     db_dir = os.path.join(base, 'db')
     os.makedirs(db_dir, exist_ok=True)
     return os.path.join(db_dir, 'stock_data.sqlite')
 
-DB_FILE = _get_db_path()
-DB_DIR = os.path.dirname(DB_FILE)
-os.makedirs(DB_DIR, exist_ok=True)
-DB_backslash = chr(92)
-DB_PATH = f"sqlite:///{DB_FILE.replace(DB_backslash, '/')}"
-# SQLite 在多线程/多session下可能需要关闭同一线程校验
-engine = create_engine(DB_PATH, echo=False, future=True, connect_args={"check_same_thread": False})
+
+def _get_db_url() -> str:
+    """根据 config.json 中的 db 配置返回连接 URL"""
+    from trader.config import get_db_config
+    db_cfg = get_db_config()
+    db_type = db_cfg.get("type", "sqlite")
+
+    if db_type == "mysql":
+        host = db_cfg.get("host", "localhost")
+        port = db_cfg.get("port", 3306)
+        user = db_cfg.get("user", "root")
+        password = db_cfg.get("password", "")
+        database = db_cfg.get("database", "easytrader")
+        return f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?charset=utf8mb4"
+    else:
+        db_file = _get_sqlite_path()
+        db_backslash = chr(92)
+        return f"sqlite:///{db_file.replace(db_backslash, '/')}"
+
+
+# ── 全局 engine 和 session ──
+DB_URL = _get_db_url()
+
+if DB_URL.startswith("sqlite"):
+    engine = create_engine(DB_URL, echo=False, future=True, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(DB_URL, echo=False, future=True, pool_pre_ping=True, pool_size=5, max_overflow=10)
+
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 class Dividend(Base):
@@ -269,8 +290,10 @@ init_db()
 
 
 if __name__ == "__main__":
-    print(f"✅ 数据库路径: {DB_FILE}")
-    print(f"✅ 数据库大小: {os.path.getsize(DB_FILE) / 1024 / 1024:.1f} MB")
+    print(f"✅ 数据库连接: {DB_URL}")
+    if DB_URL.startswith("sqlite"):
+        db_file = _get_sqlite_path()
+        print(f"✅ 数据库大小: {os.path.getsize(db_file) / 1024 / 1024:.1f} MB")
     # 校验所有表是否存在
     from sqlalchemy import inspect
     insp = inspect(engine)

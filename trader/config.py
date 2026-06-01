@@ -1,7 +1,7 @@
 """
 easyTrader 全局配置模块
 =======================
-管理 Tushare Token 等用户配置，
+管理 Tushare Token、DeepSeek Key、数据库连接等用户配置，
 配置保存在 {项目根目录}/config.json 中。
 """
 import json
@@ -53,4 +53,36 @@ def set_deepseek_token(token: str) -> None:
     """设置 DeepSeek API Key"""
     cfg = load_config()
     cfg["deepseek_token"] = token
+    save_config(cfg)
+
+
+# ════════════════════════════════════════
+#  数据库配置
+# ════════════════════════════════════════
+
+def get_db_config() -> dict:
+    """
+    获取数据库配置，返回格式：
+    {
+        "type": "sqlite",       # "sqlite" 或 "mysql"
+        # SQLite 无需额外参数
+        # MySQL 需要以下参数
+        "host": "localhost",
+        "port": 3306,
+        "user": "root",
+        "password": "",
+        "database": "easytrader",
+    }
+    """
+    cfg = load_config()
+    db_cfg = cfg.get("db", {})
+    if not db_cfg:
+        db_cfg = {"type": "sqlite"}
+    return db_cfg
+
+
+def set_db_config(db_cfg: dict) -> None:
+    """设置数据库配置"""
+    cfg = load_config()
+    cfg["db"] = db_cfg
     save_config(cfg)
