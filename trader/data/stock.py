@@ -16,7 +16,7 @@ import json
 from sqlalchemy.exc import SQLAlchemyError
 
 # 导入 ORM
-from .orm import SessionLocal, StockBasic, init_db, engine, create_stock_table_class
+from trader.db.orm import SessionLocal, StockBasic, init_db, engine, create_stock_table_class
 
 # 尝试导入 tushare
 try:
@@ -155,6 +155,8 @@ class Stock:
                         db_df.drop('_sa_instance_state', axis=1, inplace=True)
             else:
                 print(f"❌ {symbol} 所有数据源均获取失败")
+        else:
+            print(f"✅ {symbol} {start}~{end} 已完整，无需拉取")
 
         # 返回（排序后）
         if not db_df.empty:

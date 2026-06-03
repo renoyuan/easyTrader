@@ -29,13 +29,20 @@ def main() -> None:
     print(f"[DEBUG] sys.executable = {getattr(sys, 'executable', 'N/A')}")
     print(f"[DEBUG] sys.argv = {sys.argv}")
     try:
-        from trader.data.orm import DB_FILE, init_db
-        print(f"[DEBUG] DB_FILE = {DB_FILE}")
-        print(f"[DEBUG] DB exists = {os.path.exists(DB_FILE)}")
-        if os.path.exists(DB_FILE):
-            print(f"[DEBUG] DB size = {os.path.getsize(DB_FILE) / 1024 / 1024:.1f} MB")
+        from trader.db.orm import DB_URL, init_db
+        print(f"[DEBUG] DB_URL = {DB_URL}")
+        # 显示 SQLite 路径
+        if "sqlite" in DB_URL:
+            import re
+            m = re.search(r'sqlite:///(.+)', DB_URL)
+            if m:
+                db_file = m.group(1)
+                print(f"[DEBUG] DB_FILE = {db_file}")
+                print(f"[DEBUG] DB exists = {os.path.exists(db_file)}")
+                if os.path.exists(db_file):
+                    print(f"[DEBUG] DB size = {os.path.getsize(db_file) / 1024 / 1024:.1f} MB")
         # 检查表中数据
-        from trader.data.orm import SessionLocal, Income
+        from trader.db.orm import SessionLocal, Income
         with SessionLocal() as sess:
             cnt = sess.query(Income).count()
             print(f"[DEBUG] income 表记录数 = {cnt}")

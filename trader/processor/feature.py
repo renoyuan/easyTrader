@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Optional, List, Tuple
 from trader.data.statement import StatementDownload
-from trader.data.orm import SessionLocal, StockBasic
+from trader.db.orm import SessionLocal, StockBasic
 
 
 class StockFeatureProcessor:

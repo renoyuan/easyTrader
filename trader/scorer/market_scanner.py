@@ -14,7 +14,7 @@ from typing import Callable, Optional, List, Dict, Any
 import pandas as pd
 import numpy as np
 
-from trader.data.orm import SessionLocal, StockBasic
+from trader.db.orm import SessionLocal, StockBasic
 from trader.scorer.buffett import BuffettScorer
 from trader.scorer.graham import GrahamScorer
 from trader.scorer.xuxiang import XuXiangScorer
