@@ -105,7 +105,7 @@ class Stock:
 
         # 1. 查询本地数据库
         with SessionLocal() as session:
-            query = session.query(StockKline)
+            query = session.query(StockKline).filter(StockKline.code == symbol)
             if start:
                 query = query.filter(StockKline.date >= start_dt)
             if end:
@@ -143,7 +143,7 @@ class Stock:
 
                 # 重新查库
                 with SessionLocal() as session2:
-                    query2 = session2.query(StockKline)
+                    query2 = session2.query(StockKline).filter(StockKline.code == symbol)
                     if start:
                         query2 = query2.filter(StockKline.date >= start_dt)
                     if end:

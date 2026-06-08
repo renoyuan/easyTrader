@@ -276,16 +276,36 @@ class EasyTraderGUI:
         self.history_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
         h_vsb.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # ── 底部状态栏 ──
+                # ── 底部状态栏 ──
         status_bar = tk.Frame(self.root, bg="#e8eaed", height=28)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
         status_bar.pack_propagate(False)
 
         tk.Label(
-            status_bar, text="v1.0 | 数据来源: akshare / tushare",
+            status_bar,             text="2026.06.07 | 数据来源: akshare / tushare",
             bg="#e8eaed", fg=COLOR_TEXT_SECONDARY,
-            font=("微软雅黑", 8)
+                        font=("微软雅黑", 8)
         ).pack(side=tk.LEFT, padx=12)
+
+        btn_help = tk.Button(
+            status_bar, text="关于",
+            command=self.show_about,
+            bg="#e8eaed", fg=COLOR_PRIMARY,
+            font=("微软雅黑", 8, "bold"),
+            relief=tk.FLAT, bd=0, cursor="hand2",
+            activebackground="#e8eaed", activeforeground=COLOR_PRIMARY,
+        )
+        btn_help.pack(side=tk.RIGHT, padx=(0, 2))
+
+        btn_info = tk.Button(
+            status_bar, text="帮助",
+            command=self.show_help,
+            bg="#e8eaed", fg=COLOR_PRIMARY,
+            font=("微软雅黑", 8, "bold"),
+            relief=tk.FLAT, bd=0, cursor="hand2",
+            activebackground="#e8eaed", activeforeground=COLOR_PRIMARY,
+        )
+        btn_info.pack(side=tk.RIGHT, padx=(0, 12))
 
     @staticmethod
     def _create_styled_button(parent: tk.Frame, text: str,
@@ -368,3 +388,169 @@ class EasyTraderGUI:
         for item in self.tree.get_children():
             self.tree.delete(item)
         self._set_status("已清空")
+
+    # ==========================================
+    #  帮助说明弹窗
+    # ==========================================
+    def show_help(self) -> None:
+        win = tk.Toplevel(self.root)
+        win.title("📖 功能说明")
+        win.geometry("640x520")
+        win.configure(bg=COLOR_CARD_BG)
+        win.resizable(True, True)
+
+        tk.Label(
+            win, text="📖 easyTrader · 全部功能说明",
+            bg=COLOR_CARD_BG, fg=COLOR_TEXT,
+            font=("微软雅黑", 14, "bold")
+        ).pack(pady=(10, 6))
+
+        text = tk.Text(
+            win, font=FONT_NORMAL, bg="#fafafa", fg=COLOR_TEXT,
+            wrap=tk.WORD, padx=14, pady=8,
+            relief=tk.FLAT, highlightthickness=1, highlightcolor="#dadce0"
+        )
+        text.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        text.insert(tk.END, HELP_TEXT)
+        text.config(state=tk.DISABLED)
+
+    # ==========================================
+    #  关于弹窗
+    # ==========================================
+    def show_about(self) -> None:
+        win = tk.Toplevel(self.root)
+        win.title("关于 easyTrader")
+        win.geometry("480x300")
+        win.configure(bg=COLOR_CARD_BG)
+        win.resizable(False, False)
+
+        tk.Label(
+            win, text="📊  easyTrader · 股神模拟器",
+            bg=COLOR_CARD_BG, fg=COLOR_TEXT,
+            font=("微软雅黑", 16, "bold")
+        ).pack(pady=(20, 4))
+
+        tk.Label(
+            win, text="",
+            bg=COLOR_CARD_BG, fg=COLOR_TEXT_SECONDARY,
+            font=FONT_NORMAL
+        ).pack()
+
+        info_frame = tk.Frame(win, bg=COLOR_CARD_BG)
+        info_frame.pack(pady=10)
+
+        labels = [
+            ("版本", "2026.06.07"),
+            ("作者邮箱", "renoyuan@foxmail.com"),
+            ("GitHub", "https://github.com/renoyuan/easyTrader"),
+        ]
+        for label, value in labels:
+            row = tk.Frame(info_frame, bg=COLOR_CARD_BG)
+            row.pack(fill=tk.X, pady=4)
+            tk.Label(
+                row, text=f"{label}：", bg=COLOR_CARD_BG, fg=COLOR_TEXT_SECONDARY,
+                font=("微软雅黑", 10, "bold"), width=10, anchor=tk.E
+            ).pack(side=tk.LEFT)
+            tk.Label(
+                row, text=value, bg=COLOR_CARD_BG, fg=COLOR_PRIMARY,
+                font=FONT_NORMAL, anchor=tk.W
+            ).pack(side=tk.LEFT, padx=(6, 0))
+
+        tk.Label(
+            win, text="",
+            bg=COLOR_CARD_BG, fg=COLOR_TEXT_SECONDARY,
+            font=("微软雅黑", 9)
+        ).pack(pady=(10, 0))
+
+        tk.Button(
+            win, text="关闭",
+            command=win.destroy,
+            bg=COLOR_PRIMARY, fg="white",
+            font=("微软雅黑", 10, "bold"),
+            relief=tk.FLAT, bd=0, cursor="hand2",
+            padx=20, pady=4,
+        ).pack(pady=(4, 14))
+
+
+HELP_TEXT = """
+═══════════════════════════════════════════
+                功能说明
+═══════════════════════════════════════════
+
+一、股神评分（4 种评分体系）
+──────────────────────────
+
+1️⃣  巴菲特价值评分  (buffett)
+  · 核心理念：优质公司 + 合理价格
+  · 评分维度：
+      - ROE、净利润率、资产负债率等财务质地  (0~50分)
+      - 趋势（指标逐年变化方向）  (0~30分)
+      - PE 估值（绝对值打分）  (0~20分)
+  · 适合：长期价值投资，寻找优质白马
+
+2️⃣  格雷厄姆评分  (graham)
+  · 核心理念：安全边际，低估值
+  · 评分维度：
+      - PE 估值  (0~30分)
+      - PB 估值  (0~25分)
+      - 盈利稳定性  (0~15分)
+      - 财务安全（低负债）  (0~20分)
+      - 流动比率  (0~10分)
+  · 适合：寻找低估、高安全边际的价值股
+
+3️⃣  徐翔趋势评分  (xuxiang)
+  · 核心理念：趋势 + 量价配合
+  · 评分维度：
+      - 10日价格动量  (0~25分)
+      - 成交量放大  (0~25分)
+      - 连续上涨天数  (0~20分)
+      - 突破新高  (0~20分)
+      - 波动稳定性  (0~10分)
+  · 适合：短线/波段交易，追强势股
+
+4️⃣  Renoyuan 核心评分  (renoyuan)
+  · 核心理念：综合财务 + 增长 + 估值 + 股息
+  · 评分维度：
+      - 质量（ROE、利润率等）  (0~30分)
+      - 增长（营收/利润增长）  (0~25分)
+      - 估值（PE/PB 打分）  (0~20分)
+      - 稳定性（低负债、现金流）  (0~15分)
+      - 股息率  (0~10分)
+  · 适合：综合型选股，兼顾质量与价格
+
+═══════════════════════════════════════════
+
+二、市场扫描
+──────────────────────────
+  · 支持一键扫描全市场或指定板块
+  · 可选板块：上证A股、深证A股、创业板、
+    科创板、北交所、全部A股
+  · 可同时选择多个评分体系进行综合评估
+  · 结果按总分排名，快速定位优质标的
+
+═══════════════════════════════════════════
+
+三、股神复盘
+──────────────────────────
+
+📈 市场复盘
+  · 统计全市场 1700+ 股票的走势分布
+  · 按区间（一月 / 三月 / 半年 / 一年）
+    统计上涨/下跌股票数量
+
+📋 个股复盘
+  · 输入股票代码，自动拉取近一年 K 线数据
+  · 输出关键财报数据与估值指标
+  · 包括区间涨跌、PE/PB、ROE 等
+
+═══════════════════════════════════════════
+
+四、数据来源说明
+──────────────────────────
+  · 财务数据：东方财富 (akshare)
+  · K 线行情：东方财富 (akshare)
+  · 估值数据：东方财富 (akshare)，按天缓存
+  · 辅助数据：同花顺 (akshare)
+
+═══════════════════════════════════════════
+"""
