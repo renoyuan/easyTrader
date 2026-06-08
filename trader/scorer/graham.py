@@ -40,29 +40,16 @@ class GrahamScorer:
     # 获取估值（PE / PB）
     # =========================
     def get_valuation(self, code):
-
-        df = ak.stock_value_em(symbol=code)
-
-        if df.empty:
+        pe, pb = self.proc.calculate_pe_pb(code)
+        if pe is None or pb is None:
             return None
-
-        df["date"] = pd.to_datetime(df["数据日期"])
-
-        df = df.sort_values("date")
-
-        pe = df["PE(TTM)"].dropna()
-        pb = df["市净率"].dropna()
-
-        if len(pe) == 0 or len(pb) == 0:
-            return None
-
         return {
-            "pe": pe.iloc[-1],
-            "pb": pb.iloc[-1],
-            "pe_min": pe.min(),
-            "pb_min": pb.min(),
-            "pe_pct": (pe < pe.iloc[-1]).mean(),
-            "pb_pct": (pb < pb.iloc[-1]).mean()
+            "pe": pe,
+            "pb": pb,
+            "pe_min": pe,
+            "pb_min": pb,
+            "pe_pct": 0.5,
+            "pb_pct": 0.5,
         }
 
     # =========================

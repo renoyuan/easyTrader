@@ -16,7 +16,7 @@ import json
 from sqlalchemy.exc import SQLAlchemyError
 
 # 导入 ORM
-from trader.db.orm import SessionLocal, StockBasic, init_db, engine, create_stock_table_class
+from trader.db.orm import SessionLocal, StockBasic, StockKline, init_db, engine
 
 # 尝试导入 tushare
 try:
@@ -101,8 +101,7 @@ class Stock:
         start_dt = pd.to_datetime(start)
         end_dt = pd.to_datetime(end)
 
-        StockKline = create_stock_table_class(symbol)
-        StockKline.__table__.create(bind=engine, checkfirst=True)
+        # StockKline 统一单表，无需动态创建
 
         # 1. 查询本地数据库
         with SessionLocal() as session:
@@ -367,14 +366,13 @@ class Stock:
             return
 
         # 动态创建表
-        StockKline = create_stock_table_class(code)
-        StockKline.__table__.create(bind=engine, checkfirst=True)
+                # StockKline 统一单表，无需动态创建
 
         try:
             # 查询已存在的日期
             exist_dates = {
                 d[0] for d in
-                self.db.query(StockKline.date).filter(StockKline.ts_code == code).all()
+                self.db.query(StockKline.date).filter(StockKline.code == code).all()
             }
 
             insert_count = 0
@@ -385,7 +383,7 @@ class Stock:
 
                 obj = StockKline(
                     date=current_date,
-                    ts_code=code,
+                    code=code,
                     open=row["open"],
                     close=row["close"],
                     high=row["high"],

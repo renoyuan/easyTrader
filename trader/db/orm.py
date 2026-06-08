@@ -211,29 +211,40 @@ class FinancialIndicator(Base):
 
 
 # ==========================
-# 动态创建单股票K线表
+# 估值缓存表（PE / PB / 股息率）
 # ==========================
-def create_stock_table_class(code: str):
-    table_name = f"stock_{code}"
+class Valuation(Base):
+    __tablename__ = "valuation"
 
-    class StockKline(Base):
-        __tablename__ = table_name
-        __table_args__ = {'extend_existing': True}
+    code = Column(VARCHAR(20), primary_key=True, comment="股票代码")
+    trade_date = Column(VARCHAR(10), primary_key=True, comment="交易日期")
+    pe = Column(Float, nullable=True, comment="PE(TTM)")
+    pb = Column(Float, nullable=True, comment="市净率")
+    dividend_yield = Column(Float, nullable=True, comment="股息率(%)")
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
 
-        date = Column(Date, primary_key=True, comment="交易日期")
-        ts_code = Column(VARCHAR(10), primary_key=True, comment="股票代码")
-        open = Column(Float, nullable=True, comment="开盘价")
-        close = Column(Float, nullable=True, comment="收盘价")
-        high = Column(Float, nullable=True, comment="最高价")
-        low = Column(Float, nullable=True, comment="最低价")
-        volume = Column(Integer, nullable=True, comment="成交量")
-        amount = Column(Float, nullable=True, comment="成交额")
-        amplitude = Column(Float, nullable=True, comment="振幅")
-        pct_chg = Column(Float, nullable=True, comment="涨跌幅")
-        change = Column(Float, nullable=True, comment="涨跌额")
-        turnover_rate = Column(Float, nullable=True, comment="换手率")
+    def __repr__(self):
+        return f"<Valuation(code={self.code}, date={self.trade_date})>"
 
-    return StockKline
+
+# ==========================
+# K线数据表（统一单表，所有股票放一起）
+# ==========================
+class StockKline(Base):
+    __tablename__ = "stock_kline"
+
+    code = Column(VARCHAR(10), primary_key=True, comment="股票代码")
+    date = Column(Date, primary_key=True, comment="交易日期")
+    open = Column(Float, nullable=True, comment="开盘价")
+    close = Column(Float, nullable=True, comment="收盘价")
+    high = Column(Float, nullable=True, comment="最高价")
+    low = Column(Float, nullable=True, comment="最低价")
+    volume = Column(Integer, nullable=True, comment="成交量")
+    amount = Column(Float, nullable=True, comment="成交额")
+    amplitude = Column(Float, nullable=True, comment="振幅")
+    pct_chg = Column(Float, nullable=True, comment="涨跌幅")
+    change = Column(Float, nullable=True, comment="涨跌额")
+    turnover_rate = Column(Float, nullable=True, comment="换手率")
 
 
 # ==========================

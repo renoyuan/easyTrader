@@ -245,33 +245,90 @@ class StockFeatureProcessor:
     def calculate_dividend_yield(self, code: str) -> float:
         """
         获取最近一年的股息率（%）
-        通过 StatementDownload 的 get_dividend_df 查询数据库
+        优先从 valuation 缓存表查询，没有再查 dividend 表
         """
+        # 优先查估值缓存表
+        dy = self._get_valuation_from_cache(code, field='dividend_yield')
+        if dy is not None:
+            return dy
+        # 回退到 dividend 表
         df = self.data_service.get_dividend_df(code)
         if df.empty or "dividend_yield" not in df.columns:
             return np.nan
-        dy = df["dividend_yield"].dropna()
-        return float(dy.iloc[0]) if not dy.empty else np.nan
+        dy_val = df["dividend_yield"].dropna()
+        return float(dy_val.iloc[0]) if not dy_val.empty else np.nan
+
+    def _get_valuation_from_cache(self, code: str, field: str = None):
+        """从 valuation 缓存表查询最新估值数据（当天），未过期则返回"""
+        from trader.db.orm import Valuation, SessionLocal
+        from datetime import datetime
+        try:
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            with SessionLocal() as session:
+                row = session.query(Valuation).filter(
+                    Valuation.code == code,
+                    Valuation.trade_date == today_str
+                ).first()
+                if row is not None:
+                    if field == 'pe':
+                        return row.pe
+                    elif field == 'pb':
+                        return row.pb
+                    elif field == 'dividend_yield':
+                        return row.dividend_yield
+                    else:
+                        return row.pe, row.pb, row.dividend_yield
+        except Exception:
+            pass
+        return None
+
+    def _save_valuation_to_cache(self, code: str, pe, pb, dividend_yield):
+        """将估值数据写入 valuation 缓存表"""
+        from trader.db.orm import Valuation, SessionLocal
+        from datetime import datetime
+        try:
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            with SessionLocal() as session:
+                obj = Valuation(
+                    code=code,
+                    trade_date=today_str,
+                    pe=pe,
+                    pb=pb,
+                    dividend_yield=dividend_yield
+                )
+                session.merge(obj)
+                session.commit()
+        except Exception:
+            pass
 
     def calculate_pe_pb(self, code: str) -> Tuple[Optional[float], Optional[float]]:
         """
-
-        实时获取最近 PE(TTM) 和 PB（通过 akshare 估值表）
+        获取最近 PE(TTM) 和 PB
+        优先从估值缓存表查询，当天已缓存则直接返回，否则实时拉取 akshare 并入库缓存
         """
-        try:
+        # 先查缓存
+        cached = self._get_valuation_from_cache(code)
+        if cached is not None:
+            return cached[0], cached[1]
 
+        try:
             import akshare as ak
             df = ak.stock_value_em(symbol=code)
             if df.empty:
                 return None, None
 
-
-
             pe = df["PE(TTM)"].dropna()
             pb = df["市净率"].dropna()
-            return (
-                float(pe.iloc[-1]) if not pe.empty else None,
-                float(pb.iloc[-1]) if not pb.empty else None,
-            )
+            # 同时获取股息率（如果有）
+            dy = df["股息率"].dropna() if "股息率" in df.columns else None
+
+            pe_val = float(pe.iloc[-1]) if not pe.empty else None
+            pb_val = float(pb.iloc[-1]) if not pb.empty else None
+            dy_val = float(dy.iloc[-1]) if dy is not None and not dy.empty else None
+
+            # 入库缓存
+            self._save_valuation_to_cache(code, pe_val, pb_val, dy_val)
+
+            return pe_val, pb_val
         except Exception:
             return None, None

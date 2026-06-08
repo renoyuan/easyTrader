@@ -36,50 +36,38 @@ class BuffettScorer:
         return 0
 
     def get_ak_valuation_5y(self, code: str) -> pd.DataFrame:
-        """从akshare stock_value_em 获取近5年 PE(TTM)、PB"""
+        """从本地缓存获取最新 PE(TTM)、PB"""
         try:
-            df = ak.stock_value_em(symbol=code)
-            if df.empty:
+            pe, pb = self.proc.calculate_pe_pb(code)
+            if pe is None:
                 return pd.DataFrame()
-
-            # 日期筛选近5年
-            df["trade_date"] = pd.to_datetime(df["数据日期"])
-            five_year_ago = datetime.now() - timedelta(days=5 * 365)
-            df = df[df["trade_date"] >= five_year_ago]
-
-            # 重命名并保留关键字段
-            df = df.rename(columns={
-                "PE(TTM)": "pe_ttm",
-                "市净率": "pb"
-            })[["trade_date", "pe_ttm", "pb"]]
-
-            # 清洗异常值
-            df = df.dropna()
-            df = df[(df["pe_ttm"] > 0) & (df["pe_ttm"] < 300)]
-            df = df.sort_values("trade_date").reset_index(drop=True)
+            df = pd.DataFrame({
+                "trade_date": [datetime.now()],
+                "pe_ttm": [pe],
+                "pb": [pb],
+            })
             return df
         except Exception as e:
             print(f"估值数据获取异常: {e}")
             return pd.DataFrame()
 
     def calc_valuation_score(self, df: pd.DataFrame) -> tuple[int, str]:
-        """PE历史分位打分 0~20分"""
-        if df.empty or len(df) < 120:
+        """PE估值打分 0~20分（基于当前PE绝对值）"""
+        if df.empty or "pe_ttm" not in df.columns:
             return 0, "估值数据不足"
 
-        pe_series = df["pe_ttm"]
-        current_pe = pe_series.iloc[-1]
-        # 计算当前PE在5年历史分位
-        percentile = (pe_series < current_pe).mean()
+        pe = df["pe_ttm"].iloc[-1]
 
-        if percentile < 0.3:
-            return 20, "低估 ✅"
-        elif percentile < 0.6:
-            return 10, "合理 ⚖️"
-        elif percentile < 0.8:
-            return 5,  "偏高 ⚠️"
+        if pe < 10:
+            return 20, "低估"
+        elif pe < 15:
+            return 15, "偏低"
+        elif pe < 20:
+            return 10, "合理"
+        elif pe < 30:
+            return 5, "偏高"
         else:
-            return 0,  "高估 ❌"
+            return 0, "高估"
 
     def score(self, code, years=5):
         print(f"[buffett] 开始评分: {code}")
