@@ -15,6 +15,7 @@ from trader.scorer.graham import GrahamScorer
 from trader.scorer.xuxiang import XuXiangScorer
 from trader.scorer.renoyuan import RenoyuanScorer
 from trader.scorer.xubin import XuBinScorer
+from trader.scorer.fang_laoge import FangLaogeScorer
 from trader.scorer.market_scanner import MarketScanner, format_top_results
 from trader.ai import DeepSeekClient
 
@@ -49,6 +50,12 @@ SCORER_REGISTRY = {
         "icon": "🚨",
         "scorer_class": XuBinScorer,
         "color": "#e74c3c",
+        "method": "score",
+    },
+    "方老哥筹码趋势评分": {
+        "icon": "🎯",
+        "scorer_class": FangLaogeScorer,
+        "color": "#c62828",
         "method": "score",
     },
 }
@@ -114,6 +121,7 @@ class ScorerPanel:
             "🔥  徐翔趋势评分",
             "🏦  renoyuan核心评分",
             "🚨  xubin财报排雷评分",
+            "🎯  方老哥筹码趋势评分",
         ]
         self._combo = ttk.Combobox(
             selector_frame,
@@ -133,6 +141,7 @@ class ScorerPanel:
             "🔥  徐翔趋势评分": "徐翔趋势评分",
             "🏦  renoyuan核心评分": "renoyuan核心评分",
             "🚨  xubin财报排雷评分": "xubin财报排雷评分",
+            "🎯  方老哥筹码趋势评分": "方老哥筹码趋势评分",
         }
 
     def _on_select(self, event=None) -> None:
@@ -191,6 +200,9 @@ class ScorerPanel:
                 "xubin财报排雷评分": (self._append_xubin_result, self._fill_tree_xubin,
                                 "xubin 财报排雷评分体系：基于利润含金量、收入真实性、毛利率合理性、存货健康度、负债风险等因子进行财务造假风险筛查",
                                 lambda r: f"综合总分：{r['score']}/100\n风险评级：{r['rating']}\n可信度：{r.get('confidence','N/A')}\n是否高危：{r.get('high_risk','N/A')}"),
+                "方老哥筹码趋势评分": (self._append_fanglaoge_result, self._fill_tree_fanglaoge,
+                                "方老哥筹码趋势评分体系：融合方新侠（中线锁仓+重仓龙头）和赵老哥（首板突破+筹码结构）风格，基于分时线逐笔成交数据计算筹码分布和主力资金动向，结合日线量价趋势综合评分",
+                                lambda r: f"综合得分：{r['score']}/100\n筹码分：{r['sub_scores']['chip_score']}/60\n趋势分：{r['sub_scores']['trend_score']}/40\n风格标签：{r['style_tag']}\n综合评级：{r['rating']}"),
             }
             append_fn, tree_fn, system_intro, summary_fn = dispatch_map.get(system, (None, None, "", None))
             if append_fn:
@@ -467,6 +479,62 @@ class ScorerPanel:
             ("   ├ 趋势判断", "", explanation),
         ])
 
+    # ── 方老哥筹码趋势评分 ──
+
+    def _append_fanglaoge_result(self, res: dict) -> None:
+        full_name = f"{res['code']} {res.get('name', '')}"
+        self._info(f"\n股票: {full_name}")
+        self._info("🎯 方老哥筹码趋势评分")
+        self._info(f"  ├ 筹码结构: {res['sub_scores']['chip_score']} / 60")
+        self._info(f"  ├ 量价趋势: {res['sub_scores']['trend_score']} / 40")
+        self._info(f"  └ 综合总分: {res['score']} / 100")
+        self._info(f"\n风格标签: {res['style_tag']}")
+        self._info(f"综合评级: {res['rating']}")
+        self._info(f"{'-'*45}")
+        
+        # 筹码详细
+        self._info(f"\n【筹码结构】{res['sub_scores']['chip_label']}")
+        for k, v in res.get('chip_detail', {}).items():
+            self._info(f"  ├ {v}")
+        
+        # 趋势详细
+        self._info(f"\n【量价趋势】{res['sub_scores']['trend_label']}")
+        for k, v in res.get('trend_detail', {}).items():
+            self._info(f"  ├ {v}")
+        
+        # 原始数据
+        raw = res.get('chip_raw', {})
+        if raw.get('chip_density') is not None:
+            self._info(f"\n筹码原始数据:")
+            self._info(f"  筹码集中度: {raw['chip_density']:.1%}")
+            self._info(f"  获利盘比例: {raw['profit_ratio']:.1%}")
+            self._info(f"  买卖比: {raw['buy_sell_ratio']:.2f}")
+            self._info(f"  大单占比: {raw['big_order_ratio']:.1%}")
+            self._info(f"  大单买卖比: {raw['big_buy_sell_ratio']:.2f}")
+            self._info(f"  早盘资金占比: {raw.get('morning_ratio', 0):.1%}")
+            self._info(f"  尾盘资金占比: {raw.get('tail_ratio', 0):.1%}")
+        self._info(f"\n数据来源: {res.get('chip_source', 'N/A')}")
+        self._info(f"{'='*50}\n")
+
+    def _fill_tree_fanglaoge(self, res: dict) -> None:
+        score = res['score']
+        chip_score = res['sub_scores']['chip_score']
+        trend_score = res['sub_scores']['trend_score']
+        rows = [
+            ("🎯 方老哥筹码趋势", f"{score}/100", res['rating']),
+            ("   ├ 筹码结构", f"{chip_score}/60", res['sub_scores']['chip_label']),
+            ("   ├ 量价趋势", f"{trend_score}/40", res['sub_scores']['trend_label']),
+            ("   ├ 风格标签", "", res['style_tag']),
+        ]
+        raw = res.get('chip_raw', {})
+        if raw.get('chip_density') is not None:
+            rows.append(("   │", "", ""))
+            rows.append(("   ├ 筹码集中度", f"{raw['chip_density']:.1%}", ""))
+            rows.append(("   ├ 获利盘比例", f"{raw['profit_ratio']:.1%}", ""))
+            rows.append(("   ├ 买卖比", f"{raw['buy_sell_ratio']:.2f}", ""))
+            rows.append(("   ├ 大单买卖比", f"{raw['big_buy_sell_ratio']:.2f}", ""))
+        self._update_tree(rows)
+    
     # ════════════════════════════════════════
     #  全市场批量评分扫描
     # ════════════════════════════════════════
