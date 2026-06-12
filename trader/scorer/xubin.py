@@ -86,7 +86,7 @@ class XuBinScorer:
         warnings = []
         high_risk = False
 
-                # 年度均值
+        # 年度均值
         num_cols = yearly.select_dtypes(include=[np.number]).columns
         ind = yearly[num_cols].mean()
 

@@ -365,7 +365,6 @@ class Stock:
             print(f"ℹ️ {code} 无K线数据")
             return
 
-        # 动态创建表
                 # StockKline 统一单表，无需动态创建
 
         try:

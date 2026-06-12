@@ -8,9 +8,6 @@ AUTHOR: reno
 note:  格雷厄姆评分模型
 """
 
-import sys, os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
@@ -122,7 +119,7 @@ class XuXiangScorer:
 
         # 5. 波动（强势但不崩）
         vol = close.pct_change().std()
-        if vol < 0.02:
+        if not np.isnan(vol) and vol < 0.02:
             score += 10
 
         score = min(score, 100)
