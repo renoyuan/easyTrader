@@ -197,8 +197,8 @@ class ReviewerPanel:
                     analysis = ai.analyze_stock_review(data)
                     self._info(f"\n{analysis}\n")
                 else:
-                    self._info("  ⚠️ DeepSeek API Key 未配置，跳过 AI 分析\n"
-                               "    请在左侧操作面板 → 设置 DeepSeek Key")
+                    self._info("  ⚠️ DeepSeek API Key 未配置，跳过 AI 分析\n请在左侧操作面板 → 系统设置 → 配置 DeepSeek Key")
+                              
             except Exception as e:
                 self._info(f"  ⚠️ AI 分析异常: {e}")
 

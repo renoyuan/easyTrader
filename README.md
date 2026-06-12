@@ -1,76 +1,102 @@
-## 与GUI界面
+﻿# 📊 easyTrader · 价值评分系统
 
-### AI分析（trader/ai_model.py）
+> 一个基于 Python 的 A 股量化分析系统，集成多维度评分体系、相对估值模型、市场复盘和图形化操作界面。
+>
+> 版本：2026.06.12 · 数据来源：东方财富 / 申万指数 (akshare)
 
-示例：使用线性回归模型预测股票收盘价。
+---
 
-```python
-from trader.ai_model import StockAIModel
-import pandas as pd
-df = pd.read_csv('data.csv')
-model = StockAIModel()
-model.train(df, ["open", "high", "low"], "close")
-preds = model.predict(df, ["open", "high", "low"])
-print(preds)
-```
+## 快速开始
 
-### GUI界面（trader/gui_app.py）
+### 环境要求
+- Python 3.11+
+- MySQL 5.7+ **（推荐）** 或 SQLite
 
-直接运行即可启动图形界面，支持加载CSV数据并进行AI分析：
+### 安装依赖
+`ash
+pip install -r requirements.txt
+`
 
-```bash
+### 初始化行业数据
+`python
+from trader.valuation.industry import download_sw_industry
+download_sw_industry()
+`
+
+### 启动 GUI
+`ash
 python trader/gui_app.py
-```
+`
+
+### 代码示例
+`python
+from trader.valuation.engine import quick_valuate
+result = quick_valuate("600519")
+print(result["_summary"]["verdict"])
+`
 
 ---
 
-easyTraser trader for python
-python==3.13.3
+## 功能总览
 
-# easyTraser
+### 评分体系（6 种）
+| 评分体系 | 核心理念 | 适用场景 |
+|---------|---------|---------|
+| 巴菲特价值评分 | ROE、财务质地、合理PE | 长期价值投资 |
+| 格雷厄姆评分 | 安全边际、低PE/PB、高流动性 | 寻找低估价值股 |
+| 徐翔趋势评分 | 价格动量、成交量放大、突破新高 | 短线/波段交易 |
+| Renoyuan 核心评分 | 综合财务+增长+估值+股息 | 综合型选股 |
+| 方老哥筹码趋势评分 | 筹码集中度、主力资金、突破形态 | 中线锁仓/首板博弈 |
+| 徐彬财务安全评分 | 资产负债结构、现金流覆盖 | 财务风控 |
 
-easyTraser 是一个基于 Python 的股票分析项目，支持收益率对比、形态分析、走势分析，并计划集成 AI 智能分析与可视化 GUI 页面。
+### 估值分析
+| 方法 | 公式 | 依赖数据 |
+|-----|------|---------|
+| PE估值法 | 行业合理PE x EPS | 行业PE区间、EPS |
+| PB估值法 | 行业合理PB x BVPS | 行业PB区间、每股净资产 |
+| PS估值法 | 行业PS x 营收/总股本 | 营收、总股本 |
+| PEG估值法 | 合理PE=增长率(PEG=1) | EPS、净利润增长率 |
 
-## 环境要求
+### 项目结构
+`
+easyTrader/
+├── trader/
+│   ├── version.py               # 版本号
+│   ├── config.py                 # 配置
+│   ├── db/                       # ORM模型
+│   ├── valuation/                # 估值模块(行业/相对估值/引擎)
+│   ├── scorer/                   # 评分模块(6种评分体系)
+│   ├── reviewer/                 # 复盘模块
+│   ├── gui/                      # 图形界面(5个面板)
+│   └── gui_app.py                # GUI入口
+├── README.md
+└── config.json
+`
 
-- Python >= 3.13.3
+### 配置
+`json
+{
+  "tushare_token": "",
+  "deepseek_token": "",
+  "db": {
+    "type": "mysql",
+    "host": "localhost",
+    "port": 3306,
+    "user": "root",
+    "password": "",
+    "database": "easytrader"
+  }
+}
+`
 
-## 功能规划
+### 数据来源
+| 数据 | 来源 |
+|------|------|
+| 财务数据 | 东方财富(akshare) |
+| K线行情 | 东方财富(akshare) |
+| 估值数据 | 东方财富(akshare) |
+| 行业数据 | 申万指数(akshare) |
 
-1. **收益率对比**：对不同股票或策略的历史收益率进行对比分析。
-2. **形态分析**：对股票K线形态、技术指标等进行分析。
-3. **走势分析**：对股票历史走势进行统计与可视化。
-4. **AI分析**：利用机器学习/深度学习模型对股票进行预测或分类，辅助投资决策。
-5. **GUI页面**：提供图形化界面，方便用户交互、查看分析结果。
+Apache License 2.0
 
-## 推荐项目结构
-
-```
-trader/
-	__init__.py
-	data.py         # 数据获取与处理
-	stock_any.py    # 技术指标与策略实现
-	ai_model.py     # AI模型训练与预测
-	gui_app.py      # 图形界面主程序
-	demo.py         # 主程序示例
-```
-
-## 依赖安装
-
-建议使用 pip 安装相关依赖：
-
-```bash
-pip install -r requiments.txt
-```
-
-## 未来计划
-
-- 支持更多AI模型与特征工程
-- 丰富GUI交互体验
-- 增加回测与实盘接口
-
----
-
-欢迎贡献代码与建议！
-
-pyinstaller -F --name "股神分析系统" --collect-all numpy trader/gui\_app.py
+> renoyuan@foxmail.com | github.com/renoyuan/easyTrader

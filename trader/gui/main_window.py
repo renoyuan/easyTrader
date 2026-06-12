@@ -42,6 +42,7 @@ class EasyTraderGUI:
         from .scorer_panel import ScorerPanel
         from .settings_panel import SettingsPanel
         from .reviewer_panel import ReviewerPanel
+        from .valuation_panel import ValuationPanel
 
         # ── 先初始化子面板（被 _build_widgets 引用） ──
         self.scorer = ScorerPanel(
@@ -62,6 +63,7 @@ class EasyTraderGUI:
             tree_callback=self._update_tree,
             notebook_select_callback=lambda i: self.notebook.select(i),
         )
+        # 估值面板在 _build_widgets 中创建
 
         # ── 构建界面（此时 self.scorer / self.settings / self.reviewer 已就绪） ──
         self._build_widgets()
@@ -73,6 +75,8 @@ class EasyTraderGUI:
     #  界面构建
     # ==========================================
     def _build_widgets(self) -> None:
+        from .valuation_panel import ValuationPanel
+        
         # ── 顶部标题栏 ──
         header = tk.Frame(self.root, bg=COLOR_PRIMARY, height=56)
         header.pack(fill=tk.X)
@@ -182,13 +186,8 @@ class EasyTraderGUI:
         ttk.Separator(btn_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
 
         self._create_styled_button(
-            btn_frame, "⚙  设置 Tushare Token",
-            self.settings.setup_tushare, "#5f6368"
-        ).pack(fill=tk.X, pady=4)
-
-        self._create_styled_button(
-            btn_frame, "🤖  设置 DeepSeek Key",
-            self.settings.setup_deepseek, "#5f6368"
+            btn_frame, "⚙  系统设置",
+            self.settings.open_settings, "#5f6368"
         ).pack(fill=tk.X, pady=4)
 
         self._create_styled_button(
@@ -276,13 +275,22 @@ class EasyTraderGUI:
         self.history_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
         h_vsb.pack(side=tk.RIGHT, fill=tk.Y)
 
+        # ---- Tab 4: 估值分析 ----
+        self.valuation_panel = ValuationPanel(
+            notebook=self.notebook,
+            status_callback=self._set_status,
+            info_callback=self._info,
+        )
+
                 # ── 底部状态栏 ──
         status_bar = tk.Frame(self.root, bg="#e8eaed", height=28)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
         status_bar.pack_propagate(False)
 
+        from trader.version import VERSION
+        
         tk.Label(
-            status_bar,             text="2026.06.07 | 数据来源: akshare / tushare",
+            status_bar, text=f"{VERSION} | 数据来源: akshare / tushare",
             bg="#e8eaed", fg=COLOR_TEXT_SECONDARY,
                         font=("微软雅黑", 8)
         ).pack(side=tk.LEFT, padx=12)
@@ -420,7 +428,7 @@ class EasyTraderGUI:
     def show_about(self) -> None:
         win = tk.Toplevel(self.root)
         win.title("关于 easyTrader")
-        win.geometry("480x300")
+        win.geometry("480x360")
         win.configure(bg=COLOR_CARD_BG)
         win.resizable(False, False)
 
@@ -439,8 +447,10 @@ class EasyTraderGUI:
         info_frame = tk.Frame(win, bg=COLOR_CARD_BG)
         info_frame.pack(pady=10)
 
+        from trader.version import VERSION
+        
         labels = [
-            ("版本", "2026.06.07"),
+            ("版本", VERSION),
             ("作者邮箱", "renoyuan@foxmail.com"),
             ("GitHub", "https://github.com/renoyuan/easyTrader"),
         ]
@@ -469,7 +479,15 @@ class EasyTraderGUI:
             font=("微软雅黑", 10, "bold"),
             relief=tk.FLAT, bd=0, cursor="hand2",
             padx=20, pady=4,
-        ).pack(pady=(4, 14))
+        ).pack(pady=(4, 4))
+
+        # 免责声明
+        tk.Label(
+            win, text="⚠️ 本软件不构成投资建议，使用前请阅读 DISCLAIMER.md",
+            bg=COLOR_CARD_BG, fg=COLOR_DANGER,
+            font=("微软雅黑", 8),
+            wraplength=400,
+        ).pack(pady=(0, 10))
 
 
 HELP_TEXT = """
@@ -564,7 +582,15 @@ HELP_TEXT = """
   · 财务数据：东方财富 (akshare)
   · K 线行情：东方财富 (akshare)
   · 估值数据：东方财富 (akshare)，按天缓存
-  · 辅助数据：同花顺 (akshare)
+    · 辅助数据：同花顺 (akshare)
 
 ═══════════════════════════════════════════
+
+⚠️ 免责声明
+──────────────────────────
+本软件仅供学习和研究目的，不构成任何投资建议。
+使用前请详细阅读项目根目录下的 DISCLAIMER.md 文件。
+
+股市有风险，投资需谨慎。本软件不是"股神"，
+也不会让你一夜暴富。
 """

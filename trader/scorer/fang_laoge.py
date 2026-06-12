@@ -27,6 +27,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from trader.processor.feature import StockFeatureProcessor
 from trader.data.statement import StatementDownload
+from trader.data.intraday_storage import IntradayStorage
 
 
 class FangLaogeScorer:
@@ -46,7 +47,8 @@ class FangLaogeScorer:
 
     def _get_intraday_data(self, code: str, target_date: str = None) -> pd.DataFrame:
         """
-        获取指定日期分时逐笔成交数据（新浪接口）
+        获取指定日期分时逐笔成交数据
+        优先级：本地库 > 新浪接口（拉取后自动入库）
         如果 target_date 为 None，则自动从今天往前回溯最近交易日
         返回字段: ticktime, price, volume, kind (U=买盘, D=卖盘, E=集合竞价)
         """
@@ -60,38 +62,54 @@ class FangLaogeScorer:
         else:
             return pd.DataFrame()
 
+        def _fetch_from_sina_and_save(_code: str, _symbol: str, _date: str) -> pd.DataFrame:
+            """从新浪拉取并自动入库"""
+            try:
+                df = ak.stock_intraday_sina(symbol=_symbol, date=_date)
+                if df is None or df.empty:
+                    return pd.DataFrame()
+                # 过滤集合竞价
+                if 'kind' in df.columns:
+                    df = df[df['kind'].isin(['U', 'D'])].copy()
+                if df.empty:
+                    return pd.DataFrame()
+                # 自动入库
+                saved = IntradayStorage.save_intraday(_code, df, _date)
+                if saved:
+                    print(f"  [fanglaoge] 分时数据已入库: {_code} {_date}, {saved} 条")
+                return df
+            except Exception as e:
+                print(f"  [fanglaoge] 新浪分时拉取失败 {_date}: {e}")
+                return pd.DataFrame()
+
         today = datetime.now()
 
-        # 如果未指定日期，从今天往前回溯，最多找 10 天
         if target_date is None:
+            # 未指定日期：从今天往前回溯，查本地 → 拉取
             for i in range(10):
                 check_date = today - timedelta(days=i)
-                # 跳过周末
                 if check_date.weekday() >= 5:
                     continue
                 date_str = check_date.strftime("%Y%m%d")
-                try:
-                    df = ak.stock_intraday_sina(symbol=symbol, date=date_str)
-                    if df is not None and not df.empty:
-                        # 过滤集合竞价数据（只保留连续竞价）
-                        if 'kind' in df.columns:
-                            df = df[df['kind'].isin(['U', 'D'])].copy()
-                        if not df.empty:
-                            return df
-                except Exception:
-                    continue
+
+                # 1. 先查本地
+                local_df = IntradayStorage.load_intraday(code, date_str)
+                if not local_df.empty:
+                    print(f"  [fanglaoge] 命中本地分时库: {code} {date_str}")
+                    return local_df
+
+                # 2. 本地无，拉取
+                df = _fetch_from_sina_and_save(code, symbol, date_str)
+                if not df.empty:
+                    return df
             return pd.DataFrame()
         else:
-            # 指定日期直接获取
-            try:
-                df = ak.stock_intraday_sina(symbol=symbol, date=target_date)
-                if df is not None and not df.empty:
-                    if 'kind' in df.columns:
-                        df = df[df['kind'].isin(['U', 'D'])].copy()
-                    return df
-                return pd.DataFrame()
-            except Exception:
-                return pd.DataFrame()
+            # 指定日期
+            local_df = IntradayStorage.load_intraday(code, target_date)
+            if not local_df.empty:
+                print(f"  [fanglaoge] 命中本地分时库: {code} {target_date}")
+                return local_df
+            return _fetch_from_sina_and_save(code, symbol, target_date)
 
     def _calc_chip_distribution(self, df: pd.DataFrame) -> dict:
         """

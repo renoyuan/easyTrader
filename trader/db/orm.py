@@ -248,6 +248,25 @@ class StockKline(Base):
 
 
 # ==========================
+# 分时线逐笔成交表
+# ==========================
+class IntradayTick(Base):
+    __tablename__ = "intraday_tick"
+
+    code = Column(VARCHAR(10), primary_key=True, comment="股票代码")
+    trade_date = Column(VARCHAR(10), primary_key=True, comment="交易日期 YYYYMMDD")
+    ticktime = Column(VARCHAR(10), primary_key=True, comment="逐笔时间 HH:MM:SS")
+    price = Column(Float, nullable=True, comment="成交价")
+    volume = Column(Integer, nullable=True, comment="成交量（股）")
+    kind = Column(VARCHAR(4), nullable=True, comment="U-买盘 D-卖盘 E-集合竞价")
+    prev_price = Column(Float, nullable=True, comment="昨收价")
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
+
+    def __repr__(self):
+        return f"<IntradayTick(code={self.code}, date={self.trade_date})>"
+
+
+# ==========================
 # 数据库连接配置
 # ==========================
 
@@ -296,6 +315,8 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 # 初始化数据库表
 # ==========================
 def init_db():
+    # 导入估值模型，确保 Base 注册新表
+    import trader.db.valuation_models  # noqa
     Base.metadata.create_all(engine)
 
 

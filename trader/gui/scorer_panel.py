@@ -218,7 +218,7 @@ class ScorerPanel:
                 ai = DeepSeekClient()
                 if not ai.is_ready:
                     self._info("  ⚠️ DeepSeek API Key 未配置，跳过 AI 点评\n"
-                               "    请在左侧操作面板 → 设置 DeepSeek Key")
+"    请在左侧操作面板 → 系统设置 → 配置 DeepSeek Key")
                 else:
                     do_ai = messagebox.askyesno(
                         "AI 点评",
@@ -260,6 +260,9 @@ class ScorerPanel:
         self._info(f"\n{'='*50}")
         self._info(f"📊  {title} ...")
         self._info(f"{'='*50}")
+        # 提示用户首次可能自动下载数据
+        self._info(f"\n💡 温馨提示：首次评分时，若本地数据库为空，将自动下载")
+        self._info(f"   全市场财务数据（约30秒/年，下载后自动缓存），请耐心等待~")
 
     def _handle_error(self, context: str, error: Exception) -> None:
         msg = str(error)

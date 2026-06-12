@@ -70,7 +70,14 @@ class StatementDownload:
             if years:
                 q = q.filter(Performance.year.in_(years))
             rows = q.order_by(Performance.year.asc(), Performance.report_date.asc()).all()
-            return self._rows_to_df(rows)
+        if not rows:
+            self._auto_download_years(years)
+            with SessionLocal() as session:
+                q = session.query(Performance).filter(Performance.code == code)
+                if years:
+                    q = q.filter(Performance.year.in_(years))
+                rows = q.order_by(Performance.year.asc(), Performance.report_date.asc()).all()
+        return self._rows_to_df(rows)
 
     def get_dividend_df(self, code: str, years=None) -> pd.DataFrame:
         with SessionLocal() as session:
@@ -78,7 +85,14 @@ class StatementDownload:
             if years:
                 q = q.filter(Dividend.year.in_(years))
             rows = q.order_by(Dividend.year.asc(), Dividend.report_date.asc()).all()
-            return self._rows_to_df(rows)
+        if not rows:
+            self._auto_download_years(years)
+            with SessionLocal() as session:
+                q = session.query(Dividend).filter(Dividend.code == code)
+                if years:
+                    q = q.filter(Dividend.year.in_(years))
+                rows = q.order_by(Dividend.year.asc(), Dividend.report_date.asc()).all()
+        return self._rows_to_df(rows)
 
     def get_kline_df(self, code: str, start=None, end=None) -> pd.DataFrame:
         from trader.data.stock import Stock
@@ -90,7 +104,14 @@ class StatementDownload:
             if years:
                 q = q.filter(Income.year.in_(years))
             rows = q.order_by(Income.year.asc(), Income.report_date.asc()).all()
-            return self._rows_to_df(rows)
+        if not rows:
+            self._auto_download_years(years)
+            with SessionLocal() as session:
+                q = session.query(Income).filter(Income.code == code)
+                if years:
+                    q = q.filter(Income.year.in_(years))
+                rows = q.order_by(Income.year.asc(), Income.report_date.asc()).all()
+        return self._rows_to_df(rows)
 
     def get_balance_df(self, code: str, years=None) -> pd.DataFrame:
         with SessionLocal() as session:
@@ -98,7 +119,14 @@ class StatementDownload:
             if years:
                 q = q.filter(Balance.year.in_(years))
             rows = q.order_by(Balance.year.asc(), Balance.report_date.asc()).all()
-            return self._rows_to_df(rows)
+        if not rows:
+            self._auto_download_years(years)
+            with SessionLocal() as session:
+                q = session.query(Balance).filter(Balance.code == code)
+                if years:
+                    q = q.filter(Balance.year.in_(years))
+                rows = q.order_by(Balance.year.asc(), Balance.report_date.asc()).all()
+        return self._rows_to_df(rows)
 
     def get_cashflow_df(self, code: str, years=None) -> pd.DataFrame:
         with SessionLocal() as session:
@@ -106,7 +134,14 @@ class StatementDownload:
             if years:
                 q = q.filter(Cashflow.year.in_(years))
             rows = q.order_by(Cashflow.year.asc(), Cashflow.report_date.asc()).all()
-            return self._rows_to_df(rows)
+        if not rows:
+            self._auto_download_years(years)
+            with SessionLocal() as session:
+                q = session.query(Cashflow).filter(Cashflow.code == code)
+                if years:
+                    q = q.filter(Cashflow.year.in_(years))
+                rows = q.order_by(Cashflow.year.asc(), Cashflow.report_date.asc()).all()
+        return self._rows_to_df(rows)
 
     def get_financial_indicator_df(self, code: str, years: list = None) -> pd.DataFrame:
         with SessionLocal() as session:
@@ -329,6 +364,31 @@ class StatementDownload:
         except Exception as e:
             print(f"  [fin_indicator] {code} error: {e}")
             return 0
+
+    # ═══════════════════════════════════════
+    #  自动下载（查询数据为空时触发）
+    # ═══════════════════════════════════════
+
+    _auto_downloaded_years = set()  # 类级别缓存，避免重复下载
+
+    def _auto_download_years(self, years):
+        """查询数据为空时自动下载指定年份的财务数据。
+        使用类级别缓存，每次程序运行只下载一次。
+        """
+        if years is None:
+            current_year = datetime.now().year
+            years = list(range(current_year - 5, current_year + 1))
+        need = [y for y in years if y not in self._auto_downloaded_years]
+        if not need:
+            return
+        total = len(need)
+        print(f"\n📥 本地数据库暂无财务数据，正在自动下载全市场数据（共 {total} 年）...")
+        print(f"   下载后自动缓存，后续评分秒出结果，请耐心等待~\n")
+        for i, year in enumerate(sorted(need), 1):
+            print(f"\n▶ [{i}/{total}] 下载 {year} 年财报数据...")
+            self.download_year(year)
+            self._auto_downloaded_years.add(year)
+        print(f"\n✅ 全市场财务数据下载完成！共缓存 {total} 年数据")
 
     # ═══════════════════════════════════════
     #  一键下载
