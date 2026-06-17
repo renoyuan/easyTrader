@@ -1,5 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# PROJECT_NAME: easyTrader
+# CREATE_TIME: 2026-05-25
+# E_MAIL: renoyuan@foxmail.com
+# AUTHOR: reno
+# note:  
+
 # 巴菲特完整评分：财务质地+增长趋势(80) + PE估值分位(20) = 100分
 
 import numpy as np

@@ -1,10 +1,35 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# PROJECT_NAME: easyTrader
+# CREATE_TIME: 2026-05-25
+# E_MAIL: renoyuan@foxmail.com
+# AUTHOR: reno
+# note:  
 
 import sys
 import os
+
+# ═══════════════════════════════════════════════
+#  sys.path 修复：PyInstaller 打包后也能正确找到模块
+# ═══════════════════════════════════════════════
+if getattr(sys, 'frozen', False):
+    # PyInstaller 打包模式
+    # sys.executable = dist/easyTrader/easyTrader.exe
+    # 项目根目录 = dist/easyTrader/
+    _app_root = os.path.dirname(sys.executable)
+else:
+    # 源码开发模式
+    _app_root = os.path.dirname(os.path.dirname(__file__))
+
+if _app_root not in sys.path:
+    sys.path.insert(0, _app_root)
+
 # 强制全局中文不乱码
-sys.stdout.reconfigure(encoding='utf-8')
-sys.stderr.reconfigure(encoding='utf-8')
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+except Exception:
+    pass
 os.environ["PYTHONIOENCODING"] = "utf-8"
 """
 easyTrader 启动入口

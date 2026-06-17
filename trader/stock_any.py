@@ -1,3 +1,11 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# PROJECT_NAME: easyTrader
+# CREATE_TIME: 2026-05-25
+# E_MAIL: renoyuan@foxmail.com
+# AUTHOR: reno
+# note:  
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt

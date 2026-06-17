@@ -1,3 +1,11 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# PROJECT_NAME: easyTrader
+# CREATE_TIME: 2026-05-25
+# E_MAIL: renoyuan@foxmail.com
+# AUTHOR: reno
+# note:  
+
 """
 SQLAlchemy ORM模型定义
 数据库：股票财务报表 + 基础信息 + K线数据表

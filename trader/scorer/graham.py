@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-#PROJECT_NAME: F:\opensource\easyTrader\trader\scorer
-#CREATE_TIME: 2026-05-12 
-#E_MAIL: renoyuan@foxmail.com
-#AUTHOR: reno 
-#note:  格雷厄姆评分模型
-
+# PROJECT_NAME: easyTrader
+# CREATE_TIME: 2026-05-25
+# E_MAIL: renoyuan@foxmail.com
+# AUTHOR: reno
+# note:  格雷厄姆评分模型
 
 import sys, os
 # 注：sys.path 应在入口统一处理，此处保留兼容旧调用方式

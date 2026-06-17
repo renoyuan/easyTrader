@@ -1,11 +1,10 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# PROJECT_NAME:  __init__.py.py
-# CREATE_TIME: 2025/5/21 10:58
+# PROJECT_NAME: easyTrader
+# CREATE_TIME: 2026-05-25
 # E_MAIL: renoyuan@foxmail.com
 # AUTHOR: reno
-# NOTE: 财务清洗 + 指标计算 财务清洗和指标计算模块
-
-
+# note:  财务清洗 + 指标计算 财务清洗和指标计算模块
 
 import pandas as pd
 import numpy as np

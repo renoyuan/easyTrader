@@ -1,4 +1,11 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# PROJECT_NAME: easyTrader
+# CREATE_TIME: 2026-05-25
+# E_MAIL: renoyuan@foxmail.com
+# AUTHOR: reno
+# note:  
+
 """
 相对估值法模块
 支持：PE（市盈率）、PB（市净率）、PS（市销率）、PEG（市盈率相对盈利增长比率）

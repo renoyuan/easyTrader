@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# PROJECT_NAME:  __init__.py.py
-# CREATE_TIME: 2025/5/21 10:58
+# PROJECT_NAME: easyTrader
+# CREATE_TIME: 2026-05-25
 # E_MAIL: renoyuan@foxmail.com
 # AUTHOR: reno
-# NOTE: 数据读取
+# note:  数据读取
+
+#!/usr/bin/env python
 
 """
 data

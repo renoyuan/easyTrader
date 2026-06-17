@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# PROJECT_NAME:  demo.py
-# CREATE_TIME: 2025/5/23 16:14
+# PROJECT_NAME: easyTrader
+# CREATE_TIME: 2026-05-25
 # E_MAIL: renoyuan@foxmail.com
 # AUTHOR: reno
-# NOTE:
+# note:  
+
 import yfinance as yf
 
 dat = yf.Ticker("MSFT")

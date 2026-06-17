@@ -1,10 +1,17 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# PROJECT_NAME: easyTrader
+# CREATE_TIME: 2026-05-25
+# E_MAIL: renoyuan@foxmail.com
+# AUTHOR: reno
+# note:  
+
 """
 easyTrader 版本信息
 集中管理版本号，所有地方从此读取
 """
 
-VERSION = "2026.06.12"
+VERSION = "2026.06.17"
 VERSION_TAG = f"v{VERSION}"
 VERSION_DESC = f"v {VERSION}"
 
