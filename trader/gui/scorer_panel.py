@@ -27,6 +27,7 @@ from trader.scorer.xubin import XuBinScorer
 from trader.scorer.fang_laoge import FangLaogeScorer
 from trader.scorer.stone_sister import StoneSisterScorer
 from trader.scorer.ge_lan import GeLanScorer
+from trader.scorer.serenity import SerenityScorer
 from trader.scorer.market_scanner import MarketScanner, format_top_results
 from trader.ai import DeepSeekClient
 
@@ -75,10 +76,16 @@ SCORER_REGISTRY = {
         "color": "#7B1FA2",
         "method": "score",
     },
-    "葛兰医药行业评分": {
+        "葛兰医药行业评分": {
         "icon": "💊",
         "scorer_class": GeLanScorer,
         "color": "#E91E63",
+        "method": "score",
+    },
+    "serenity供应链卡位评分": {
+        "icon": "🔒",
+        "scorer_class": SerenityScorer,
+        "color": "#1A237E",
         "method": "score",
     },
 }
@@ -161,15 +168,16 @@ class ScorerPanel:
 
         # 存一份真实名称映射
         self._display_to_real = {
-            "🧑‍💼  巴菲特价值评分": "巴菲特价值评分",
-            "📐  格雷厄姆价值评分": "格雷厄姆价值评分",
-            "🔥  徐翔趋势评分": "徐翔趋势评分",
-            "🏦  renoyuan核心评分": "renoyuan核心评分",
-            "🚨  xubin财报排雷评分": "xubin财报排雷评分",
-            "🎯  方老哥筹码趋势评分": "方老哥筹码趋势评分",
-            "🚀  石头姐科技成长评分": "石头姐科技成长评分",
-            "💊  葛兰医药行业评分": "葛兰医药行业评分",
-          }
+                    "🧑‍💼  巴菲特价值评分": "巴菲特价值评分",
+                    "📐  格雷厄姆价值评分": "格雷厄姆价值评分",
+                    "🔥  徐翔趋势评分": "徐翔趋势评分",
+                    "🏦  renoyuan核心评分": "renoyuan核心评分",
+                    "🚨  xubin财报排雷评分": "xubin财报排雷评分",
+                    "🎯  方老哥筹码趋势评分": "方老哥筹码趋势评分",
+                    "🚀  石头姐科技成长评分": "石头姐科技成长评分",
+                    "💊  葛兰医药行业评分": "葛兰医药行业评分",
+                    "🔒  serenity供应链卡位评分": "serenity供应链卡位评分",
+                  }
 
     def _on_select(self, event=None) -> None:
         display = self._combo.get()
@@ -233,9 +241,12 @@ class ScorerPanel:
             "石头姐科技成长评分": (self._append_stonesister_result, self._fill_tree_stonesister,
                                 "石头姐（Catherine Wood / ARK）科技成长评分体系：专注颠覆性科技创新，高研发、高成长、高毛利率赛道，只评价科技/创新行业股票，非科技股自动跳过",
                                 lambda r: f"综合得分：{r['score']}/100\n评级：{r['rating']}\n可信度：{r.get('confidence','N/A')}\n科技匹配：{r.get('match_reason','')}\n" + (f"研发投入：{r['indicators'].get('研发投入/营收','N/A')}" if r.get('indicators') else "")),
-            "葛兰医药行业评分": (self._append_gelan_result, self._fill_tree_gelan,
+                        "葛兰医药行业评分": (self._append_gelan_result, self._fill_tree_gelan,
                                 "葛兰医药行业评分体系：专注医药健康赛道，高研发管线、强盈利能力、稳健现金流，只评价医药/医疗/生物/健康行业股票，非医药股自动跳过",
                                 lambda r: f"综合得分：{r['score']}/100\n评级：{r['rating']}\n可信度：{r.get('confidence','N/A')}\n医药归属：{r.get('match_reason','')}\n" + (f"研发投入：{r['indicators'].get('研发投入/营收','N/A')}" if r.get('indicators') else "")),
+            "serenity供应链卡位评分": (self._append_serenity_result, self._fill_tree_serenity,
+                                "Serenity 供应链卡位评分体系：从财务数据反推产业链稀缺性与定价权——高毛利率（定价权）、高资本开支（扩产壁垒）、高ROE（稀缺性信号）、扩张质量、财务健康",
+                                lambda r: f"综合得分：{r['score']}/100\n评级：{r['rating']}\n可信度：{r.get('confidence','N/A')}\n" + (f"毛利率：{r['indicators'].get('毛利率(均值)','N/A')}\nROE：{r['indicators'].get('ROE(均值)','N/A')}\n资本开支/营收：{r['indicators'].get('资本开支/营收','N/A')}" if r.get('indicators') else "")),
         }
             append_fn, tree_fn, system_intro, summary_fn = dispatch_map.get(system, (None, None, "", None))
             if append_fn:
@@ -672,6 +683,63 @@ class ScorerPanel:
         if ind.get('营收增长率') is not None and not (isinstance(ind['营收增长率'], float) and np.isnan(ind['营收增长率'])):
             rows.append(("   ├ 营收增长率", f"{ind['营收增长率']:.1%}", ""))
         rows.append(("   ├ 医药归属", "", res.get('match_reason', '')))
+        rows.append(("   └ 可信度", "", res.get('confidence', '')))
+        self._update_tree(rows)
+
+    # ────────────────────────────────────────
+    #  Serenity 供应链卡位评分
+    # ────────────────────────────────────────
+    def _append_serenity_result(self, res: dict) -> None:
+        full_name = f"{res['code']} {res.get('name', '')}"
+        self._info(f"\n股票: {full_name}")
+        self._info("🔒 Serenity 供应链卡位评分")
+        self._info(f"  综合得分: {res['score']}/100")
+        self._info(f"  评级: {res['rating']}")
+        self._info(f"  可信度: {res.get('confidence', 'N/A')}")
+        self._info(f"{'-'*45}")
+
+        if res.get("warnings"):
+            self._info(f"  ⚠️ 数据警告:")
+            for w in res["warnings"]:
+                self._info(f"    - {w}")
+
+        ind = res.get("indicators", {})
+        if ind:
+            self._info(f"  📊 关键指标:")
+            for k, v in ind.items():
+                if v is None or (isinstance(v, float) and np.isnan(v)):
+                    continue
+                if isinstance(v, str):
+                    self._info(f"    {k}: {v}")
+                elif isinstance(v, float):
+                    if "率" in k and "流动比率" not in k:
+                        self._info(f"    {k}: {v:.2%}")
+                    else:
+                        self._info(f"    {k}: {v:.2f}")
+                else:
+                    self._info(f"    {k}: {v}")
+        self._info(f"{'='*50}\n")
+
+    def _fill_tree_serenity(self, res: dict) -> None:
+        score = res['score']
+        rows = [("🔒 Serenity供应链", f"{score}/100", res['rating'])]
+        ind = res.get('indicators', {})
+        if ind.get('毛利率(均值)') is not None and not (isinstance(ind['毛利率(均值)'], float) and np.isnan(ind['毛利率(均值)'])):
+            rows.append(("   ├ 毛利率", f"{ind['毛利率(均值)']:.1%}", ""))
+        if ind.get('ROE(均值)') is not None and not (isinstance(ind['ROE(均值)'], float) and np.isnan(ind['ROE(均值)'])):
+            rows.append(("   ├ ROE", f"{ind['ROE(均值)']:.1%}", ""))
+        if ind.get('资本开支/营收') is not None and not (isinstance(ind['资本开支/营收'], float) and np.isnan(ind['资本开支/营收'])):
+            rows.append(("   ├ 资本开支/营收", f"{ind['资本开支/营收']:.1%}", ""))
+        if ind.get('净利率(均值)') is not None and not (isinstance(ind['净利率(均值)'], float) and np.isnan(ind['净利率(均值)'])):
+            rows.append(("   ├ 净利率", f"{ind['净利率(均值)']:.1%}", ""))
+        if ind.get('定价权等级') is not None:
+            rows.append(("   ├ 定价权", "", ind['定价权等级']))
+        if ind.get('资产模式') is not None:
+            rows.append(("   ├ 资产模式", "", ind['资产模式']))
+        if ind.get('扩产状态') is not None:
+            rows.append(("   ├ 扩产状态", "", ind['扩产状态']))
+        if ind.get('增长质量') is not None:
+            rows.append(("   ├ 增长质量", "", ind['增长质量']))
         rows.append(("   └ 可信度", "", res.get('confidence', '')))
         self._update_tree(rows)
 

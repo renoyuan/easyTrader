@@ -24,10 +24,12 @@ from .xubin import XuBinScorer
 from .fang_laoge import FangLaogeScorer
 from .stone_sister import StoneSisterScorer
 from .ge_lan import GeLanScorer
+from .serenity import SerenityScorer
 from .market_scanner import MarketScanner, get_stock_list_by_market, get_stock_names_by_codes, format_top_results, MARKET_MAP, SCORER_MAP
 
 __all__ = ["buffett", "graham", "xuxiang", "RenoyuanScorer", "XuBinScorer",
-           "FangLaogeScorer", "StoneSisterScorer", "GeLanScorer",
+           "FangLaogeScorer", "StoneSisterScorer", "GeLanScorer", "SerenityScorer",
            "MarketScanner", "get_stock_list_by_market", "get_stock_names_by_codes",
            "format_top_results", "MARKET_MAP", "SCORER_MAP"]
+
 

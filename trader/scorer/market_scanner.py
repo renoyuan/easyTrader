@@ -30,6 +30,7 @@ from trader.scorer.xubin import XuBinScorer
 from trader.scorer.fang_laoge import FangLaogeScorer
 from trader.scorer.stone_sister import StoneSisterScorer
 from trader.scorer.ge_lan import GeLanScorer
+from trader.scorer.serenity import SerenityScorer
 
 
 # ── 市场代码映射 ──
@@ -52,7 +53,7 @@ SCORER_MAP = {
     "方老哥筹码趋势评分": FangLaogeScorer,
     "石头姐科技成长评分": StoneSisterScorer,
     "葛兰医药行业评分": GeLanScorer,
-
+    "serenity供应链卡位评分": SerenityScorer,
 }
 
 
