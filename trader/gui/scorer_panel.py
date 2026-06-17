@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk, simpledialog
 import pandas as pd
 import threading
+import numpy as np
 
 from trader.scorer.buffett import BuffettScorer
 from trader.scorer.graham import GrahamScorer
@@ -16,6 +17,8 @@ from trader.scorer.xuxiang import XuXiangScorer
 from trader.scorer.renoyuan import RenoyuanScorer
 from trader.scorer.xubin import XuBinScorer
 from trader.scorer.fang_laoge import FangLaogeScorer
+from trader.scorer.stone_sister import StoneSisterScorer
+from trader.scorer.ge_lan import GeLanScorer
 from trader.scorer.market_scanner import MarketScanner, format_top_results
 from trader.ai import DeepSeekClient
 
@@ -52,10 +55,22 @@ SCORER_REGISTRY = {
         "color": "#e74c3c",
         "method": "score",
     },
-    "方老哥筹码趋势评分": {
+        "方老哥筹码趋势评分": {
         "icon": "🎯",
         "scorer_class": FangLaogeScorer,
         "color": "#c62828",
+        "method": "score",
+    },
+    "石头姐科技成长评分": {
+        "icon": "🚀",
+        "scorer_class": StoneSisterScorer,
+        "color": "#7B1FA2",
+        "method": "score",
+    },
+    "葛兰医药行业评分": {
+        "icon": "💊",
+        "scorer_class": GeLanScorer,
+        "color": "#E91E63",
         "method": "score",
     },
 }
@@ -122,7 +137,9 @@ class ScorerPanel:
             "🏦  renoyuan核心评分",
             "🚨  xubin财报排雷评分",
             "🎯  方老哥筹码趋势评分",
-        ]
+            "🚀  石头姐科技成长评分",
+            "💊  葛兰医药行业评分",
+  ]
         self._combo = ttk.Combobox(
             selector_frame,
             values=display_names,
@@ -142,7 +159,9 @@ class ScorerPanel:
             "🏦  renoyuan核心评分": "renoyuan核心评分",
             "🚨  xubin财报排雷评分": "xubin财报排雷评分",
             "🎯  方老哥筹码趋势评分": "方老哥筹码趋势评分",
-        }
+            "🚀  石头姐科技成长评分": "石头姐科技成长评分",
+            "💊  葛兰医药行业评分": "葛兰医药行业评分",
+          }
 
     def _on_select(self, event=None) -> None:
         display = self._combo.get()
@@ -203,14 +222,20 @@ class ScorerPanel:
                 "方老哥筹码趋势评分": (self._append_fanglaoge_result, self._fill_tree_fanglaoge,
                                 "方老哥筹码趋势评分体系：融合方新侠（中线锁仓+重仓龙头）和赵老哥（首板突破+筹码结构）风格，基于分时线逐笔成交数据计算筹码分布和主力资金动向，结合日线量价趋势综合评分",
                                 lambda r: f"综合得分：{r['score']}/100\n筹码分：{r['sub_scores']['chip_score']}/60\n趋势分：{r['sub_scores']['trend_score']}/40\n风格标签：{r['style_tag']}\n综合评级：{r['rating']}"),
-            }
+            "石头姐科技成长评分": (self._append_stonesister_result, self._fill_tree_stonesister,
+                                "石头姐（Catherine Wood / ARK）科技成长评分体系：专注颠覆性科技创新，高研发、高成长、高毛利率赛道，只评价科技/创新行业股票，非科技股自动跳过",
+                                lambda r: f"综合得分：{r['score']}/100\n评级：{r['rating']}\n可信度：{r.get('confidence','N/A')}\n科技匹配：{r.get('match_reason','')}\n" + (f"研发投入：{r['indicators'].get('研发投入/营收','N/A')}" if r.get('indicators') else "")),
+            "葛兰医药行业评分": (self._append_gelan_result, self._fill_tree_gelan,
+                                "葛兰医药行业评分体系：专注医药健康赛道，高研发管线、强盈利能力、稳健现金流，只评价医药/医疗/生物/健康行业股票，非医药股自动跳过",
+                                lambda r: f"综合得分：{r['score']}/100\n评级：{r['rating']}\n可信度：{r.get('confidence','N/A')}\n医药归属：{r.get('match_reason','')}\n" + (f"研发投入：{r['indicators'].get('研发投入/营收','N/A')}" if r.get('indicators') else "")),
+        }
             append_fn, tree_fn, system_intro, summary_fn = dispatch_map.get(system, (None, None, "", None))
             if append_fn:
                 append_fn(res)
             if tree_fn:
                 tree_fn(res)
 
-                        # ── AI 点评（先出评分结果，再问是否继续） ──
+            # ── AI 点评（先出评分结果，再问是否继续） ──
             self._info(f"\n{'─'*45}")
             self._info("🤖 是否需要 DeepSeekAI 第三方点评？")
             self._info(f"{'─'*45}")
@@ -537,7 +562,111 @@ class ScorerPanel:
             rows.append(("   ├ 买卖比", f"{raw['buy_sell_ratio']:.2f}", ""))
             rows.append(("   ├ 大单买卖比", f"{raw['big_buy_sell_ratio']:.2f}", ""))
         self._update_tree(rows)
-    
+
+    # ── 石头姐科技成长评分 ──
+
+    def _append_stonesister_result(self, res: dict) -> None:
+        full_name = f"{res['code']} {res.get('name', '')}"
+        self._info(f"\n股票: {full_name}")
+
+        if not res.get("tech_match"):
+            self._info("🚀 石头姐（ARK）科技成长评分")
+            self._info(f"  ❌ {res['rating']}")
+            self._info(f"  原因: {res.get('match_reason', '未知')}")
+            self._info(f"{'='*50}\n")
+            return
+
+        self._info("🚀 石头姐（ARK）科技成长评分")
+        self._info(f"  综合得分: {res['score']}/100")
+        self._info(f"  评级: {res['rating']}")
+        self._info(f"  可信度: {res.get('confidence', 'N/A')}")
+        self._info(f"  科技匹配: {res.get('match_reason', '')}")
+        self._info(f"{'-'*45}")
+
+        if res.get("warnings"):
+            self._info(f"  ⚠️ 提示:")
+            for w in res["warnings"]:
+                self._info(f"    - {w}")
+
+        self._info(f"\n关键指标:")
+        for k, v in res.get("indicators", {}).items():
+            if v is None or (isinstance(v, float) and np.isnan(v)):
+                continue
+            if isinstance(v, float):
+                if abs(v) < 1:
+                    self._info(f"  {k:<20} {v:.2%}")
+                else:
+                    self._info(f"  {k:<20} {v:.2f}")
+            else:
+                self._info(f"  {k:<20} {v}")
+        self._info(f"{'='*50}\n")
+
+    def _fill_tree_stonesister(self, res: dict) -> None:
+        score = res['score']
+        rows = [("🚀 石头姐科技成长", f"{score}/100", res['rating'])]
+        ind = res.get('indicators', {})
+        if ind.get('研发投入/营收') is not None and not (isinstance(ind['研发投入/营收'], float) and np.isnan(ind['研发投入/营收'])):
+            rows.append(("   ├ 研发投入/营收", f"{ind['研发投入/营收']:.1%}", ""))
+        if ind.get('营收增长率') is not None and not (isinstance(ind['营收增长率'], float) and np.isnan(ind['营收增长率'])):
+            rows.append(("   ├ 营收增长率", f"{ind['营收增长率']:.1%}", ""))
+        if ind.get('毛利率') is not None and not (isinstance(ind['毛利率'], float) and np.isnan(ind['毛利率'])):
+            rows.append(("   ├ 毛利率", f"{ind['毛利率']:.1%}", ""))
+        rows.append(("   ├ 科技匹配", "", res.get('match_reason', '')))
+        rows.append(("   └ 可信度", "", res.get('confidence', '')))
+        self._update_tree(rows)
+
+    # ── 葛兰医药行业评分 ──
+
+    def _append_gelan_result(self, res: dict) -> None:
+        full_name = f"{res['code']} {res.get('name', '')}"
+        self._info(f"\n股票: {full_name}")
+
+        if not res.get("med_match"):
+            self._info("💊 葛兰医药行业评分")
+            self._info(f"  ❌ {res['rating']}")
+            self._info(f"  原因: {res.get('match_reason', '未知')}")
+            self._info(f"{'='*50}\n")
+            return
+
+        self._info("💊 葛兰医药行业评分")
+        self._info(f"  综合得分: {res['score']}/100")
+        self._info(f"  评级: {res['rating']}")
+        self._info(f"  可信度: {res.get('confidence', 'N/A')}")
+        self._info(f"  医药归属: {res.get('match_reason', '')}")
+        self._info(f"{'-'*45}")
+
+        if res.get("warnings"):
+            self._info(f"  ⚠️ 提示:")
+            for w in res["warnings"]:
+                self._info(f"    - {w}")
+
+        self._info(f"\n关键指标:")
+        for k, v in res.get("indicators", {}).items():
+            if v is None or (isinstance(v, float) and np.isnan(v)):
+                continue
+            if isinstance(v, float):
+                if abs(v) < 1:
+                    self._info(f"  {k:<20} {v:.2%}")
+                else:
+                    self._info(f"  {k:<20} {v:.2f}")
+            else:
+                self._info(f"  {k:<20} {v}")
+        self._info(f"{'='*50}\n")
+
+    def _fill_tree_gelan(self, res: dict) -> None:
+        score = res['score']
+        rows = [("💊 葛兰医药行业", f"{score}/100", res['rating'])]
+        ind = res.get('indicators', {})
+        if ind.get('研发投入/营收') is not None and not (isinstance(ind['研发投入/营收'], float) and np.isnan(ind['研发投入/营收'])):
+            rows.append(("   ├ 研发投入/营收", f"{ind['研发投入/营收']:.1%}", ""))
+        if ind.get('ROE') is not None and not (isinstance(ind['ROE'], float) and np.isnan(ind['ROE'])):
+            rows.append(("   ├ ROE", f"{ind['ROE']:.1%}", ""))
+        if ind.get('营收增长率') is not None and not (isinstance(ind['营收增长率'], float) and np.isnan(ind['营收增长率'])):
+            rows.append(("   ├ 营收增长率", f"{ind['营收增长率']:.1%}", ""))
+        rows.append(("   ├ 医药归属", "", res.get('match_reason', '')))
+        rows.append(("   └ 可信度", "", res.get('confidence', '')))
+        self._update_tree(rows)
+
     # ════════════════════════════════════════
     #  全市场批量评分扫描
     # ════════════════════════════════════════
