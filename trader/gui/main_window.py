@@ -77,6 +77,15 @@ class EasyTraderGUI:
         # ── 构建界面（此时 self.scorer / self.settings / self.reviewer 已就绪） ──
         self._build_widgets()
 
+        # ── 回测面板（传入已创建的 Notebook，独立添加标签页） ──
+        from .backtest_panel import BacktestPanel
+        self.backtest = BacktestPanel(
+            notebook=self.notebook,
+            status_callback=self._set_status,
+            info_callback=self._info,
+            tree_callback=self._update_tree,
+        )
+
         # ── 初始提示 ──
         self._info("欢迎使用 easyTrader 价值评分系统\n请点击「输入股票代码」开始分析")
 
@@ -86,7 +95,7 @@ class EasyTraderGUI:
     def _build_widgets(self) -> None:
         from .valuation_panel import ValuationPanel
         
-        # ── 顶部标题栏 ──
+                # ── 顶部标题栏 ──
         header = tk.Frame(self.root, bg=COLOR_PRIMARY, height=56)
         header.pack(fill=tk.X)
         header.pack_propagate(False)
@@ -97,30 +106,81 @@ class EasyTraderGUI:
             font=("微软雅黑", 16, "bold")
         ).pack(side=tk.LEFT, padx=20, pady=12)
 
+        # ── 右上角：版本信息 + 帮助/关于按钮 ──
+        header_right = tk.Frame(header, bg=COLOR_PRIMARY)
+        header_right.pack(side=tk.RIGHT, padx=12, pady=8)
+
+        from trader.version import VERSION
+
+        tk.Label(
+            header_right, text=f"v{VERSION}",
+            fg="#e8eaed", bg=COLOR_PRIMARY,
+            font=("微软雅黑", 8)
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        tk.Button(
+            header_right, text="📖 帮助",
+            command=self.show_help,
+            bg="#1a73e8", fg="white",
+            font=("微软雅黑", 8, "bold"),
+            relief=tk.FLAT, bd=0, cursor="hand2",
+            activebackground="#1557b0", activeforeground="white",
+            padx=6, pady=2,
+        ).pack(side=tk.LEFT, padx=2)
+
+        tk.Button(
+            header_right, text="ℹ️ 关于",
+            command=self.show_about,
+            bg="#1a73e8", fg="white",
+            font=("微软雅黑", 8, "bold"),
+            relief=tk.FLAT, bd=0, cursor="hand2",
+            activebackground="#1557b0", activeforeground="white",
+            padx=6, pady=2,
+        ).pack(side=tk.LEFT, padx=2)
+
         self.stock_label = tk.Label(
             header, text="未选择股票",
             fg="#e8eaed", bg=COLOR_PRIMARY,
             font=("微软雅黑", 10)
         )
-        self.stock_label.pack(side=tk.RIGHT, padx=20, pady=12)
+        self.stock_label.pack(side=tk.RIGHT, padx=20, pady=12, before=header_right)
 
         # ── 主内容区（左右分栏） ──
         main_panel = tk.Frame(self.root, bg=COLOR_BG)
         main_panel.pack(fill=tk.BOTH, expand=True, padx=12, pady=10)
 
-        # ======== 左栏：操作区 ========
+                # ======== 左栏：操作区（可滚动） ========
         left = tk.Frame(main_panel, bg=COLOR_CARD_BG, relief=tk.RIDGE, bd=1)
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10), pady=0)
         left.pack_propagate(False)
         left.configure(width=220)
 
+        # 左侧 Canvas 滚动支持
+        left_canvas = tk.Canvas(left, bg=COLOR_CARD_BG, highlightthickness=0, width=220)
+        left_scroll = tk.Scrollbar(left, orient=tk.VERTICAL, command=left_canvas.yview)
+        left_canvas.configure(yscrollcommand=left_scroll.set)
+        left_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        left_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        left_inner = tk.Frame(left_canvas, bg=COLOR_CARD_BG)
+        left_canvas.create_window((0, 0), window=left_inner, anchor=tk.NW, width=200)
+
+        def _configure_left_inner(event):
+            left_canvas.configure(scrollregion=left_canvas.bbox("all"))
+        left_inner.bind("<Configure>", _configure_left_inner)
+
+        # 鼠标滚轮滚动
+        def _on_mousewheel(event):
+            left_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        left_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
         tk.Label(
-            left, text="操 作 面 板", bg=COLOR_CARD_BG,
+            left_inner, text="操 作 面 板", bg=COLOR_CARD_BG,
             font=FONT_TITLE, fg=COLOR_TEXT
         ).pack(pady=(16, 10))
 
         # 按钮组
-        btn_frame = tk.Frame(left, bg=COLOR_CARD_BG)
+        btn_frame = tk.Frame(left_inner, bg=COLOR_CARD_BG)
         btn_frame.pack(pady=5, padx=12, fill=tk.X)
 
         # ═══════════ 股神评分 ═══════════
@@ -189,6 +249,23 @@ class EasyTraderGUI:
         self._create_styled_button(
             btn_frame, "📋  个股复盘",
             self.input_stock_review_code, "#ab47bc"
+        ).pack(fill=tk.X, pady=4)
+
+        # ═══════════ 量化回测 ═══════════
+        tk.Label(
+            btn_frame, text="══════ 量化回测 ══════",
+            bg=COLOR_CARD_BG, fg=COLOR_TEXT_SECONDARY,
+            font=("微软雅黑", 9, "bold")
+        ).pack(fill=tk.X, pady=(10, 2))
+
+        self._create_styled_button(
+            btn_frame, "🚀  执行回测",
+            self.input_backtest_code, "#e84393"
+        ).pack(fill=tk.X, pady=4)
+
+        self._create_styled_button(
+            btn_frame, "📋  当前标的回测",
+            self.run_backtest_current, "#6c5ce7"
         ).pack(fill=tk.X, pady=4)
 
         # ═══════════ 分隔 + 工具 ═══════════
@@ -291,38 +368,16 @@ class EasyTraderGUI:
             info_callback=self._info,
         )
 
-                # ── 底部状态栏 ──
+                                # ── 底部状态栏（简化） ──
         status_bar = tk.Frame(self.root, bg="#e8eaed", height=28)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
         status_bar.pack_propagate(False)
 
-        from trader.version import VERSION
-        
         tk.Label(
-            status_bar, text=f"{VERSION} | 数据来源: akshare / tushare",
+            status_bar, text="数据来源: akshare / tushare",
             bg="#e8eaed", fg=COLOR_TEXT_SECONDARY,
-                        font=("微软雅黑", 8)
+            font=("微软雅黑", 8)
         ).pack(side=tk.LEFT, padx=12)
-
-        btn_help = tk.Button(
-            status_bar, text="关于",
-            command=self.show_about,
-            bg="#e8eaed", fg=COLOR_PRIMARY,
-            font=("微软雅黑", 8, "bold"),
-            relief=tk.FLAT, bd=0, cursor="hand2",
-            activebackground="#e8eaed", activeforeground=COLOR_PRIMARY,
-        )
-        btn_help.pack(side=tk.RIGHT, padx=(0, 2))
-
-        btn_info = tk.Button(
-            status_bar, text="帮助",
-            command=self.show_help,
-            bg="#e8eaed", fg=COLOR_PRIMARY,
-            font=("微软雅黑", 8, "bold"),
-            relief=tk.FLAT, bd=0, cursor="hand2",
-            activebackground="#e8eaed", activeforeground=COLOR_PRIMARY,
-        )
-        btn_info.pack(side=tk.RIGHT, padx=(0, 12))
 
     @staticmethod
     def _create_styled_button(parent: tk.Frame, text: str,
@@ -396,6 +451,39 @@ class EasyTraderGUI:
             self.reviewer.run_stock_review(code)
         else:
             messagebox.showerror("输入错误", "请输入 6 位数字股票代码！")
+
+    # ==========================================
+        #  量化回测
+        # ==========================================
+    def input_backtest_code(self) -> None:
+        """弹窗输入股票代码，切换到回测标签页并填写代码"""
+        code = simpledialog.askstring(
+            "量化回测",
+            "请输入要回测的 6 位股票代码：\n例如：600519（贵州茅台）",
+            parent=self.root
+        )
+        if code is None:
+            return
+        code = code.strip()
+        if code.isdigit() and len(code) == 6:
+            # 切换到回测标签页
+            self.notebook.select(4)
+            self.backtest.load_data(code)
+        else:
+            messagebox.showerror("输入错误", "请输入 6 位数字股票代码！")
+
+    def run_backtest_current(self) -> None:
+        """使用当前选中的股票代码直接执行回测"""
+        code = self.symbol
+        if not code:
+            messagebox.showwarning("提示", "请先点击「输入代码」选择股票！")
+            return
+        # 切换到回测标签页
+        self.notebook.select(4)
+        self.backtest.load_data(code)
+        # 自动启动回测
+        self._info(f"📈 切换到回测标签页，开始回测 {code}...\n")
+        self.backtest.run_backtest()
 
     # ==========================================
     #  清空结果

@@ -1,16 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# PROJECT_NAME: easyTrader
-# CREATE_TIME: 2026-05-25
-# E_MAIL: renoyuan@foxmail.com
-# AUTHOR: reno
-# note:  
-
 # 巴菲特完整评分：财务质地+增长趋势(80) + PE估值分位(20) = 100分
 
+import sys
+import os
 import numpy as np
 import pandas as pd
-from datetime import datetime
+import akshare as ak
+from datetime import datetime, timedelta
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from trader.processor.feature import StockFeatureProcessor
 
@@ -101,43 +100,38 @@ class BuffettScorer:
 
         # 3. 财务基础分
         base = 0
-        roe = ind.get("ROE")
-        if roe is not None and not np.isnan(roe):
-            if roe >= 0.15:
+        if not np.isnan(ind["ROE"]):
+            if ind["ROE"] >= 0.15:
                 base += 14
-            elif roe >= 0.10:
+            elif ind["ROE"] >= 0.10:
                 base += 9
-            elif roe >= 0.05:
+            elif ind["ROE"] >= 0.05:
                 base += 4
 
-        net_margin = ind.get("净利润率")
-        if net_margin is not None and not np.isnan(net_margin):
-            if net_margin >= 0.15:
+        if not np.isnan(ind["净利润率"]):
+            if ind["净利润率"] >= 0.15:
                 base += 10
-            elif net_margin >= 0.08:
+            elif ind["净利润率"] >= 0.08:
                 base += 6
-            elif net_margin >= 0.03:
+            elif ind["净利润率"] >= 0.03:
                 base += 2
 
-        debt = ind.get("资产负债率")
-        if debt is not None and not np.isnan(debt):
-            if debt < 0.4:
+        if not np.isnan(ind["资产负债率"]):
+            if ind["资产负债率"] < 0.4:
                 base += 10
-            elif debt < 0.6:
+            elif ind["资产负债率"] < 0.6:
                 base += 6
 
-        ocf_to_np = ind.get("经营现金流/净利润")
-        if ocf_to_np is not None and not np.isnan(ocf_to_np):
-            if ocf_to_np >= 0.8:
+        if not np.isnan(ind["经营现金流/净利润"]):
+            if ind["经营现金流/净利润"] >= 0.8:
                 base += 10
-            elif ocf_to_np >= 0.5:
+            elif ind["经营现金流/净利润"] >= 0.5:
                 base += 6
 
-        profit_growth = ind.get("净利润增长率")
-        if profit_growth is not None and not np.isnan(profit_growth):
-            if profit_growth > 0.1:
+        if not np.isnan(ind["净利润增长率"]):
+            if ind["净利润增长率"] > 0.1:
                 base += 10
-            elif profit_growth > 0:
+            elif ind["净利润增长率"] > 0:
                 base += 5
 
         # 质地+趋势总分封顶80

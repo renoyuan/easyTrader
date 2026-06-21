@@ -11,7 +11,10 @@ easyTrader GUI 模块
   - main_window.py    主窗口框架
   - scorer_panel.py   评分面板（巴菲特/格雷厄姆/徐翔）
   - settings_panel.py 设置面板（Tushare Token 等）
+  - backtest_panel.py 回测面板
 """
 from .main_window import EasyTraderGUI
+from .backtest_panel import BacktestPanel
 
-__all__ = ["EasyTraderGUI"]
+__all__ = ["EasyTraderGUI", "BacktestPanel"]
+
