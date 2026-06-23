@@ -72,6 +72,7 @@ class BacktestPanel:
         self._engine = None
         self._last_stats = None
         self._is_running = False
+        self._daily_log_enabled = True      # [新增] 每日日志开关
 
     def _build_ui(self) -> None:
         """构建回测标签页 UI"""
@@ -139,7 +140,7 @@ class BacktestPanel:
         self._capital_entry = tk.Entry(row2, width=12, font=("Consolas", 9),
                                        relief=tk.SUNKEN, bd=1)
         self._capital_entry.pack(side=tk.LEFT, padx=(2, 0))
-        self._capital_entry.insert(0, "100000")
+        self._capital_entry.insert(0, "1000000")
 
         # 第3行：风控参数
         row3 = tk.Frame(params, bg=COLOR_BG)
@@ -150,7 +151,25 @@ class BacktestPanel:
         self._sl_var = tk.StringVar(value="7")
         tk.Spinbox(row3, from_=1, to=30, textvariable=self._sl_var,
                    width=4, font=("Consolas", 9),
-                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(2, 12))
+                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(2, 4))
+
+        tk.Label(row3, text="ATR止损：", bg=COLOR_BG,
+                 font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT)
+        self._atr_var = tk.StringVar(value="2.0")
+        tk.Spinbox(row3, from_=1, to=6, increment=0.5, textvariable=self._atr_var,
+                   width=4, font=("Consolas", 9),
+                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(2, 4))
+        tk.Label(row3, text="倍", bg=COLOR_BG,
+                 font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT)
+
+        tk.Label(row3, text="仓位模式：", bg=COLOR_BG,
+                 font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT)
+        self._pos_var = tk.StringVar(value="100% 满仓")
+        pos_combo = ttk.Combobox(row3, textvariable=self._pos_var,
+                                  values=["100% 满仓", "50% 中仓", "20% 轻仓", "10% 保守"],
+                                  state="readonly", width=12,
+                                  font=("微软雅黑", 9))
+        pos_combo.pack(side=tk.LEFT, padx=(2, 12))
 
         tk.Label(row3, text="止盈比例：", bg=COLOR_BG,
                  font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT)
@@ -171,6 +190,12 @@ class BacktestPanel:
                        fg=COLOR_TEXT, selectcolor=COLOR_BG).pack(
                            side=tk.LEFT, padx=(8, 0))
 
+        self._daily_log_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(row3, text="每日日志", variable=self._daily_log_var,
+                       bg=COLOR_BG, font=("微软雅黑", 9),
+                       fg=COLOR_TEXT, selectcolor=COLOR_BG).pack(
+                           side=tk.LEFT, padx=(8, 0))
+
         # ── 操作按钮区 ──
         btn_frame = tk.Frame(self.tab, bg=COLOR_CARD_BG)
         btn_frame.pack(fill=tk.X, padx=10, pady=6)
@@ -184,6 +209,17 @@ class BacktestPanel:
             padx=16, pady=6,
         )
         self._run_btn.pack(side=tk.LEFT)
+
+        # ── 规则帮助按钮 ──
+        self._help_btn = tk.Button(
+            btn_frame, text="❓ 规则帮助", command=self._show_help,
+            bg=COLOR_CARD_BG, fg=COLOR_PRIMARY,
+            font=("微软雅黑", 9),
+            relief=tk.RIDGE, bd=1, cursor="hand2",
+            activebackground=COLOR_BG, activeforeground=COLOR_PRIMARY,
+            padx=10, pady=4,
+        )
+        self._help_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         self._progress_var = tk.StringVar(value="")
         tk.Label(btn_frame, textvariable=self._progress_var,
@@ -272,6 +308,10 @@ class BacktestPanel:
             min_score = float(self._min_score_var.get().strip())
             sl_ratio = float(self._sl_var.get().strip()) / 100.0
             sp_ratio = float(self._sp_var.get().strip()) / 100.0
+            atr_multiplier = float(self._atr_var.get().strip())
+            pos_text = self._pos_var.get().strip()
+            # 从 "100% 满仓" 中提取数字部分
+            pos_ratio = float(pos_text.split("%")[0]) / 100.0
         except ValueError:
             messagebox.showwarning("参数错误", "请检查数字格式参数！")
             return
@@ -279,6 +319,7 @@ class BacktestPanel:
         scorer_name = self._scorer_var.get()
         enable_filter = self._filter_var.get()
         enable_bs = self._bs_var.get()
+        enable_daily_log = self._daily_log_var.get()
 
         if self._is_running:
             messagebox.showinfo("提示", "回测正在运行中，请等待完成")
@@ -295,8 +336,8 @@ class BacktestPanel:
             try:
                 self._do_backtest(code, start_date, end_date, initial_capital,
                                   scorer_name, min_score,
-                                  sl_ratio, sp_ratio,
-                                  enable_filter, enable_bs)
+                                  sl_ratio, sp_ratio, atr_multiplier, pos_ratio,
+                                  enable_filter, enable_bs, enable_daily_log)
             finally:
                 self._is_running = False
                 self._run_btn.config(state=tk.NORMAL, text="🚀 开始回测")
@@ -305,9 +346,9 @@ class BacktestPanel:
         threading.Thread(target=task, daemon=True).start()
 
     def _do_backtest(self, code: str, start_date: str, end_date: str,
-                     initial_capital: float, scorer_name: str, min_score: float,
-                     sl_ratio: float, sp_ratio: float,
-                     enable_filter: bool, enable_bs: bool) -> None:
+                         initial_capital: float, scorer_name: str, min_score: float,
+                         sl_ratio: float, sp_ratio: float, atr_multiplier: float = 2.0, pos_ratio: float = 1.0,
+                         enable_filter: bool = True, enable_bs: bool = True, enable_daily_log: bool = True) -> None:
         """实际执行回测逻辑（异步线程）"""
         # 延迟导入 backtest 引擎，避免 GUI 启动时加载 akshare 等依赖
         from trader.backtest import BacktestEngine, PerformanceStats
@@ -320,8 +361,12 @@ class BacktestPanel:
             # 创建引擎
             engine = BacktestEngine(initial_capital=initial_capital)
 
+            # 配置仓位
+            engine.fixed_position_ratio = pos_ratio
+
             # 配置风控
             engine.risk_manager.sl_fixed_ratio = sl_ratio
+            engine.risk_manager.sl_atr_multiplier = atr_multiplier
             engine.risk_manager.sp_target_price_pct = sp_ratio
             engine.risk_manager.bs_enabled = enable_bs
 
@@ -335,6 +380,23 @@ class BacktestPanel:
             engine.signal_registry.register(
                 ScorerSignal(scorer_name, min_score=min_score)
             )
+
+            # ── [新增] 挂载每日日志回调 ──
+            if enable_daily_log:
+                self._append_report("📅 每日回测日志已开启\n")
+                self._append_report(f"{'日期':<12} {'本金':>10} {'总资产':>10} {'评分/持仓':<18} {'今日涨跌':>8} {'原因/浮盈':<40} {'费用':>8}\n")
+                self._append_report(f"{'-'*120}\n")
+                self._last_log_date = None
+
+                def daily_log_callback(daily_info: dict) -> None:
+                    # [修复] 每个交易日都输出日志，不跳过任何一天
+                    # 有持仓/开平仓 → 完整日志（含浮盈）
+                    # 空仓 → 精简日志（节省空间，但仍每日输出）
+                    self._append_daily_log(daily_info)
+
+                engine.on_daily_log_callback = daily_log_callback
+            else:
+                engine.on_daily_log_callback = None
 
             # 加载 K 线
             self._set_status("⏳ 加载K线...", True)
@@ -514,6 +576,239 @@ class BacktestPanel:
 
         for k, v in filter_stats.items():
             self._trade_tree.insert("", tk.END, values=(k, v))
+
+    # ═══════════════════════════════════════════
+    #  规则帮助弹窗
+    # ═══════════════════════════════════════════
+
+    def _show_help(self) -> None:
+        """弹出规则说明窗口"""
+        help_text = """📖 回测规则说明
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1️⃣  入场规则（开仓条件）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+必须同时满足以下条件才开仓：
+
+① 评分达标
+   所选评分体系对标的的评分 ≥ 最低评分阈值（默认 70 分）
+   评分基于财务/基本面数据，非 K 线技术指标
+
+② 信号过滤（可选，默认开启）
+   勾选"启用信号过滤"时，额外检查以下条件：
+
+   a. 趋势过滤（TrendFilter MA20）
+      收盘价 ≥ MA20（20日均线），否则视为非上升趋势
+      作用：避免在下跌趋势中抄底
+
+   b. 均线多空过滤（MACrossFilter MA5>MA10>MA20）
+      短期均线 > 中期 > 长期，多头排列才允许入场
+      作用：过滤均线空头排列的反弹假信号
+
+③ 资金充足
+   仓位金额 = 总资金 × 仓位比例（下限 1 手=100股）
+   股价过高时可能买不起整手 → 日志提示"未开仓"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2️⃣  持仓规则
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+开仓后每日跟踪持仓状态，实时更新：
+  · 浮盈/浮亏
+  · 持仓天数
+  · 最高/最低价（用于止盈止损判断）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3️⃣  离场规则（平仓条件）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+任一条件触发即平仓：
+
+① 固定比例止损（默认 -7%）
+   持仓亏损达到页面设定的"止损比例"时强制平仓
+   计算公式：止损价 = 成本价 × (1 - 止损比例)
+   特点：固定价格线，简单直接
+
+② ATR 动态止损（默认 2.0 倍）
+   基于真实波幅均值（ATR）计算动态止损位
+   计算公式：止损价 = 成本价 - ATR倍数 × ATR
+   特点：自动适应市场波动，波动大时止损位宽，波动小时止损位窄
+   示例：成本 100 元，ATR=3，ATR倍数=2.0 → 止损价 94 元（-6%）
+         成本 100 元，ATR=8，ATR倍数=2.0 → 止损价 84 元（-16%）
+   提示：倍数越小止损越紧，默认 2.0 较激进；推荐 3.0~4.0 更宽松
+
+③ 固定比例止盈（默认 +15%）
+   持仓盈利达到页面设定的"止盈比例"时止盈离场
+   计算公式：止盈价 = 成本价 × (1 + 止盈比例)
+
+④ 黑天鹅保护（可选，默认开启）
+   当日跌幅超过 -9% 时触发紧急平仓
+   作用：防止突发利空导致大幅亏损
+
+⑤ 时间止损（策略内嵌）
+   持仓超过 120 个交易日强制平仓
+   作用：避免资金长期被套
+
+⑥ 策略结束（强制平仓）
+   回测周期结束时，所有持仓强制卖出
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4️⃣  仓位模式说明
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌────────────┬───────┬──────────────────────────┐
+│ 模式       │ 比例  │ 适用场景                  │
+├────────────┼───────┼──────────────────────────┤
+│ 100% 满仓  │ 100%  │ 高股价标的（如茅台600519）│
+│ 50% 中仓   │  50%  │ 普通个股分散配置           │
+│ 20% 轻仓   │  20%  │ 小仓位试探性建仓           │
+│ 10% 保守   │  10%  │ 极端保守分批建仓           │
+└────────────┴───────┴──────────────────────────┘
+
+计算方式：开仓金额 = 当前总资金 × 仓位比例
+         开仓股数 = floor(开仓金额 / 股价 / 100) × 100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5️⃣  费用模型
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  · 佣金：万分之三（双边）
+  · 滑点：千分之一（双边）
+  · 印花税：千分之一（仅卖出）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6️⃣  每日日志字段说明
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  📅 日期       → 当前交易日
+  💰 本金        → 当日可用资金
+  📊 总资产      → 本金 + 持仓市值
+  🏷 评分/持仓   → 评分(评级) 或 N股@成本价
+  📈 今日涨跌    → 当日涨跌幅
+  📝 原因/浮盈   → 空仓原因 或 浮盈金额(百分比)
+  💸 费用        → 累计交易费用
+"""
+
+        win = tk.Toplevel(self.tab)
+        win.title("📖 回测规则说明")
+        win.geometry("680x600")
+        win.configure(bg=COLOR_CARD_BG)
+        win.transient(self.tab)
+        win.grab_set()
+
+        # 文本区域
+        text = tk.Text(win, font=("Consolas", 9),
+                       bg="#fafafa", fg=COLOR_TEXT,
+                       wrap=tk.WORD, relief=tk.FLAT,
+                       padx=12, pady=10)
+        text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        text.insert(1.0, help_text)
+        text.config(state=tk.DISABLED)
+
+        # 关闭按钮
+        tk.Button(win, text="关闭", command=win.destroy,
+                  bg=COLOR_PRIMARY, fg="white",
+                  font=("微软雅黑", 9),
+                  relief=tk.FLAT, padx=20, pady=4
+                  ).pack(pady=(0, 10))
+
+    # ═══════════════════════════════════════════
+    #  每日日志输出
+    # ═══════════════════════════════════════════
+
+    def _append_daily_log(self, info: dict) -> None:
+        """格式化每日日志并追加到回测报告区（线程安全）
+        
+        两种模式：
+        - 空仓观望 → 精简模式 + 空仓原因（评分/信号/过滤）
+        - 有持仓/开平仓 → 完整模式（含浮盈、持仓明细、交易说明）
+        """
+        # 确定当日交易说明
+        notes = []
+        if info["just_opened"]:
+            notes.append("🟢 开仓买入")
+        if info["just_closed"]:
+            notes.append("🔴 平仓卖出")
+        if info["has_position"]:
+            if not info["just_opened"] and not info["just_closed"]:
+                notes.append("持有中")
+        else:
+            if not info["just_opened"] and not info["just_closed"]:
+                notes.append("空仓")
+                # ── 空仓原因分析 ──
+                score = info.get("today_score", 0)
+                rating = info.get("today_rating", "")
+                signal_triggered = info.get("signal_triggered", False)
+                signal_reason = info.get("signal_reason", "")
+                filter_passed = info.get("filter_passed", False)
+                filter_reason = info.get("filter_reason", "")
+
+                if score > 0:
+                    notes.append(f"评分={score}")
+                    if rating:
+                        notes.append(rating)
+                if signal_triggered:
+                    notes.append("信号触发")
+                    if not filter_passed:
+                        notes.append(f"被过滤({filter_reason})" if filter_reason else "被过滤")
+                    else:
+                        # 信号触发 + 过滤通过，但仍然没开仓 → 资金/数量问题
+                        skip = info.get("open_skipped_reason", "")
+                        if skip:
+                            notes.append(f"未开仓({skip})")
+                else:
+                    if signal_reason:
+                        notes.append(signal_reason)
+                    else:
+                        notes.append("无信号")
+
+        note_str = " | ".join(notes) if notes else ""
+
+        if info["has_position"]:
+            # ── 完整模式（有持仓）：含浮盈和持仓明细 ──
+            # 格式化浮盈
+            unrealized_info = ""
+            if info["position_unrealized_pnl"] != 0:
+                pnl = info["position_unrealized_pnl"]
+                pnl_pct = info["position_unrealized_pnl_pct"]
+                sign = "+" if pnl > 0 else ""
+                unrealized_info = f"{sign}{pnl:.2f}({pnl_pct:+.2f}%)"
+
+            # 持仓描述
+            pos_info = f"{info['position_quantity']}股@{info['position_cost']}"
+
+            line = (
+                f"{info['date']:<12} "
+                f"{info['capital']:>10.2f} "
+                f"{info['total_value']:>10.2f} "
+                f"{pos_info:<16} "
+                f"{info['today_pct_chg']:>+7.2f}% "
+                f"{unrealized_info:<22} "
+                f"{info['total_fee']:>8.2f}  "
+                f"{note_str}"
+            )
+
+            # 关键操作行用标记
+            if info["just_opened"] or info["just_closed"]:
+                line = f"  ▶ {line}"
+        else:
+            # ── 精简模式（空仓）：显示基础信息 + 空仓原因 ──
+            score_str = f"评分={info.get('today_score', 0)}"
+            if info.get("today_rating", ""):
+                score_str += f"({info['today_rating']})"
+
+            line = (
+                f"{info['date']:<12} "
+                f"{info['capital']:>10.2f} "
+                f"{info['total_value']:>10.2f} "
+                f"{score_str:<18} "
+                f"{info['today_pct_chg']:>+7.2f}% "
+                f"{note_str:<40} "
+                f"{info['total_fee']:>8.2f}"
+            )
+
+        self._append_report(line + "\n")
 
     # ═══════════════════════════════════════════
     #  数据加载配置

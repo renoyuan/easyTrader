@@ -85,6 +85,12 @@ class BacktestEngine:
         # ── 回调函数 ──
         self.on_trade_callback: Optional[Callable[[TradeRecord], None]] = None
 
+        # ── [新增] 每日日志回调与配置 ──
+        self.on_daily_log_callback: Optional[Callable[[Dict[str, Any]], None]] = None
+        self._daily_log_enabled: bool = True
+        self._daily_log_interval: int = 1       # 每次 K 线输出一次
+        self._daily_log_skip_days: int = 5      # 连续无交易超过此天数则跳过输出，节省空间
+
     # ═══════════════════════════════════════════
     #  数据加载
     # ═══════════════════════════════════════════
@@ -276,9 +282,26 @@ class BacktestEngine:
                     self._close_position(code, tick, risk_result, pos, context)
 
             # ── 如果没有持仓，执行入场信号判断 ──
+            signal_triggered = False
+            signal_reason = ""
+            filter_passed = False
+            filter_reason = ""
+            open_skipped_reason = ""
+            today_score = 0
+            today_rating = ""
+
             if code not in self.current_positions:
+                # 获取当日评分
+                sr = context.get("scorer_result", {}).get(scorer_name, {}) if scorer_name else {}
+                today_score = sr.get("score", 0)
+                today_rating = sr.get("rating", "")
+
                 # 1. 生成原始入场信号
                 signal_results = self.signal_registry.get_triggered(tick, context)
+
+                if signal_results:
+                    signal_triggered = True
+                    signal_reason = signal_results[0].summary if signal_results else ""
 
                 if debug and signal_results and idx % 50 == 0:
                     for sr in signal_results:
@@ -296,6 +319,8 @@ class BacktestEngine:
 
                     # 2. 信号过滤 [强烈建议]
                     filter_result = self.signal_filter.check_all(tick, context)
+                    filter_passed = filter_result.passed
+                    filter_reason = filter_result.failed_detail if not filter_result.passed else ""
 
                     # 记录过滤后信号
                     for sr in signal_results:
@@ -304,13 +329,69 @@ class BacktestEngine:
                             "code": code,
                             "signal": sr.summary,
                             "score": sr.score,
-                            "passed_filter": filter_result.passed,
-                            "filter_detail": filter_result.failed_detail if not filter_result.passed else "",
+                            "passed_filter": filter_passed,
+                            "filter_detail": filter_reason,
                         })
 
                     # 3. 如果通过过滤，开仓
-                    if filter_result.passed:
-                        self._open_position(code, tick, signal_results, filter_result, context)
+                    if filter_passed:
+                        opened = self._open_position(code, tick, signal_results, filter_result, context)
+                        if not opened:
+                            open_skipped_reason = "资金不足/数量为0(股价过高)"
+                else:
+                    # 信号未触发，找出原因
+                    if scorer_name:
+                        if today_score < min_score:
+                            signal_reason = f"评分{today_score}<阈值{min_score}"
+                        else:
+                            signal_reason = f"评分达标({today_score})但未达入场条件"
+                    else:
+                        signal_reason = "无评分体系/技术信号未触发"
+
+            # ── [新增] 每日日志输出 ──
+            if self._daily_log_enabled and self.on_daily_log_callback:
+                # 收集当日日志信息
+                has_position = code in self.current_positions
+                just_opened = (has_position and
+                               self.current_positions[code].holding_days == 0 and
+                               hasattr(self.current_positions[code], '_trade_ref'))
+                just_closed = False
+                # 检查最近是否有平仓（trade 记录的最后一条是今天平仓的）
+                if self.trades and self.trades[-1].exit_date == self.current_timestamp:
+                    just_closed = True
+
+                pos = self.current_positions.get(code)
+                daily_info = {
+                    "date": str(self.current_timestamp),
+                    "capital": round(self.capital, 2),
+                    "has_position": has_position,
+                    "just_opened": just_opened,
+                    "just_closed": just_closed,
+                    "position_quantity": pos.quantity if pos else 0,
+                    "position_cost": round(pos.avg_cost, 2) if pos else 0.0,
+                    "position_current_price": round(pos.current_price, 2) if pos else 0.0,
+                    "position_unrealized_pnl": round((pos.market_value - pos.cost_value), 2) if pos else 0.0,
+                    "position_unrealized_pnl_pct": round(((pos.market_value - pos.cost_value) / pos.cost_value * 100), 2) if pos and pos.cost_value > 0 else 0.0,
+                    "position_holding_days": pos.holding_days if pos else 0,
+                    "today_open": round(tick.open, 2),
+                    "today_close": round(tick.close, 2),
+                    "today_high": round(tick.high, 2),
+                    "today_low": round(tick.low, 2),
+                    "today_pct_chg": round(tick.pct_chg, 2),
+                    "today_volume": int(tick.volume) if tick.volume else 0,
+                    "total_fee": round(sum(t.fee for t in self.trades), 2),
+                    "total_trades": len(self.trades),
+                    "total_value": round(self.capital + (pos.market_value - pos.cost_value if pos else 0), 2),
+                # ── 空仓原因相关 ──
+                    "today_score": today_score,
+                    "today_rating": today_rating,
+                    "signal_triggered": signal_triggered,
+                    "signal_reason": signal_reason,
+                    "filter_passed": filter_passed,
+                    "filter_reason": filter_reason,
+                    "open_skipped_reason": open_skipped_reason,
+                }
+                self.on_daily_log_callback(daily_info)
 
             # ── 更新资金曲线 ──
             total_value = self.capital
@@ -353,20 +434,20 @@ class BacktestEngine:
     def _open_position(self, code: str, tick: TickSnapshot,
                        signal_results: List[SignalResult],
                        filter_result: FilterResult,
-                       context: Dict[str, Any]) -> None:
-        """执行开仓"""
+                       context: Dict[str, Any]) -> bool:
+        """执行开仓，返回是否成功开仓"""
         # [建议] 计算开仓数量
         position_value = self.capital * self.fixed_position_ratio
         quantity = int(position_value / tick.close / 100) * 100  # 按手
         if quantity <= 0:
-            return
+            return False
 
         cost = quantity * tick.close
         fee = cost * (self.commission_pct + self.slippage_pct)
 
         if cost + fee > self.capital:
             # 资金不足
-            return
+            return False
 
         self.capital -= (cost + fee)
 
@@ -403,6 +484,7 @@ class BacktestEngine:
         )
         # 暂存到持仓对象中
         pos._trade_ref = trade
+        return True
 
     def _close_position(self, code: str, tick: TickSnapshot,
                         risk_result: RiskResult,
