@@ -69,12 +69,14 @@ class BuffettScorer:
         else:
             return 0, "高估"
 
-    def score(self, code, years=5):
+    def score(self, code, years=5, as_of_date=None):
         print(f"[buffett] 开始评分: {code}")
-        # 1. 通过 StockFeatureProcessor 逐年计算财务指标
-        current_year = datetime.now().year
+        # 使用回测日期（避免未来函数），否则用当前时间
+        ref_date = as_of_date or datetime.now()
+        current_year = ref_date.year if hasattr(ref_date, 'year') else ref_date.year
+        # 向前取 years 年的财务数据
         years_list = list(range(current_year - years, current_year + 1))
-        print(f"[buffett] 计算财务指标...")
+        print(f"[buffett] 计算财务指标: {code} as_of={ref_date} years={years_list}...")
 
         yearly = self.proc.calculate_yearly_features(code, years_list)
         if yearly.empty or len(yearly) < 3:

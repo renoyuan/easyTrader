@@ -73,13 +73,14 @@ class XuBinScorer:
     # =========================
     # 核心排雷评分
     # =========================
-    def score(self, code, years=5):
+    def score(self, code, years=5, as_of_date=None):
 
         print(f"[xubin] 开始排雷评分: {code}")
 
-        current_year = datetime.now().year
+        ref_date = as_of_date or datetime.now()
+        current_year = ref_date.year if hasattr(ref_date, 'year') else ref_date.year
         years_list = list(range(current_year - years, current_year + 1))
-        print(f"[xubin] 读取近{years}年财报: {years_list}")
+        print(f"[xubin] 读取近{years}年财报: as_of={ref_date} years={years_list}")
 
         yearly = self.proc.calculate_yearly_features(code, years_list)
         if yearly.empty or len(yearly) < 3:

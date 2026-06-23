@@ -176,7 +176,7 @@ class BacktestEngine:
 
     def run(self, code: str,
             scorer_name: Optional[str] = None,
-            min_score: float = 70.0,
+            min_score: float = 80.0,
             progress_callback: Optional[Callable[[int, int, str], None]] = None,
             debug: bool = True,  # 开启调试日志
             ) -> PerformanceStats:
@@ -524,7 +524,7 @@ class BacktestEngine:
         trade.pnl = pnl
         trade.pnl_pct = pnl_pct
         trade.fee += fee
-        trade.net_pnl = pnl
+        trade.net_pnl = pnl - fee
         trade.holding_period = pos.holding_days
         trade.max_drawdown = (pos.lowest_price - pos.avg_cost) / pos.avg_cost * 100 if pos.avg_cost > 0 else 0
         trade.max_runup = (pos.highest_price - pos.avg_cost) / pos.avg_cost * 100 if pos.avg_cost > 0 else 0
@@ -573,11 +573,12 @@ class BacktestEngine:
         )
 
     def _evaluate_scorer(self, code: str, tick: TickSnapshot,
-                         context: Dict[str, Any],
-                         idx: int, df: pd.DataFrame) -> Dict[str, Any]:
+                     context: Dict[str, Any],
+                     idx: int, df: pd.DataFrame) -> Dict[str, Any]:
         """
         在单根 K 线上调用评分器进行实时评分
-        评分器使用财务数据（非K线），同一标的评分结果在整个回测周期内复用
+        评分器使用截至当前 K 线的数据，避免未来函数。
+        每根 K 线都会触发评分（财务类评分器按季度缓存，K 线类评分器每根 K 线重算）。
 
         :return: scorer_result 字典，结构如 {"renoyuan核心评分": {"score": 85, "rating": "A+", ...}}
         """
@@ -593,53 +594,75 @@ class BacktestEngine:
             return {}
 
         try:
-            # 使用缓存：评分结果在整个回测周期内只计算一次
-            cache_key = f"_cached_scorer_result_{scorer_info}_{code}"
-            cached = getattr(self, cache_key, None)
-            if cached is not None:
-                return cached
-
-            # 评分器实例也缓存
+            # 评分器实例缓存
             inst_cache_key = f"_scorer_instance_{scorer_info}"
             scorer = getattr(self, inst_cache_key, None)
             if scorer is None:
                 scorer = scorer_cls()
                 setattr(self, inst_cache_key, scorer)
 
-            # 调用评分器 (使用默认参数 years=5，评分器内部从数据库拉取财务数据)
-            result = scorer.score(code)
+            # 当前回测日期
+            as_of_date = tick.date if tick.date else self.current_timestamp
+
+            # ── 判断评分器类型 ──
+            # K 线类评分器（徐翔、方老哥、石头姐、葛兰等）：每根 K 线都需重新评分
+            kline_scorers = ["徐翔趋势评分", "方老哥筹码趋势评分", "石头姐科技成长评分", "葛兰医药行业评分"]
+            # 财务类评分器（巴菲特、格雷厄姆、xubin排雷、renoyuan核心）：按季度缓存即可
+            financial_scorers = ["巴菲特价值评分", "格雷厄姆价值评分", "xubin财报排雷评分", "renoyuan核心评分"]
+
+            result = None
+            current_kline = df.iloc[:idx + 1] if idx > 0 else df
+
+            if scorer_info in kline_scorers:
+                # ── K 线类评分器：每根 K 线使用截至当前的数据评分 ──
+                # 徐翔已支持 score_from_kline
+                if hasattr(scorer, 'score_from_kline'):
+                    result = scorer.score_from_kline(code, current_kline)
+                else:
+                    # 其他 K 线评分器，传入 as_of_date 和截至当前的 K 线
+                    result = scorer.score(code, as_of_date=as_of_date, kline_df=current_kline)
+            elif scorer_info in financial_scorers:
+                # ── 财务类评分器：按季度缓存，同一季度内复用评分 ──
+                quarter_key = f"{as_of_date.year}Q{(as_of_date.month - 1) // 3 + 1}"
+                cache_key = f"_cached_scorer_{scorer_info}_{code}_{quarter_key}"
+                cached = getattr(self, cache_key, None)
+                if cached is not None:
+                    return cached
+
+                # 传入回测日期，使评分器只使用该日期之前的财报数据
+                result = scorer.score(code, years=5, as_of_date=as_of_date)
+
+                # 缓存季度评分
+                if result:
+                    setattr(self, cache_key, {scorer_info: {**result}})
+                    return {scorer_info: {**result}}
+            else:
+                # ── 未知类型：回退到原始调用（不缓存、不传日期） ──
+                result = scorer.score(code)
+
             if result is None:
                 return {}
 
-            # 统一评分结果格式 - 处理各种可能的返回格式
+            # 统一评分结果格式
             if isinstance(result, dict):
                 score_val = result.get("score", result.get("total_score", 0))
                 rating = result.get("rating", result.get("评级", ""))
                 indicators = result.get("indicators", result.get("dimensions", result.get("details", {})))
-            elif isinstance(result, (tuple, list)):
-                # 有些评分器可能返回 (score, rating) 元组
-                score_val = result[0] if len(result) > 0 else 0
-                rating = result[1] if len(result) > 1 else ""
-                indicators = {}
             else:
-                score_val = result
+                score_val = result if isinstance(result, (int, float)) else 0
                 rating = ""
                 indicators = {}
 
             if score_val is None:
                 score_val = 0
 
-            scorer_result = {
+            return {
                 scorer_info: {
                     "score": score_val,
                     "rating": rating,
                     "indicators": indicators,
                 }
             }
-
-            # 缓存结果
-            setattr(self, cache_key, scorer_result)
-            return scorer_result
 
         except Exception as e:
             # 评分失败时静默处理，不中断回测
@@ -746,7 +769,7 @@ def quick_backtest(code: str,
                    start_date: str = "20230101",
                    end_date: str = "20241231",
                    scorer_name: str = "renoyuan核心评分",
-                   min_score: float = 70.0,
+                   min_score: float = 80.0,
                    initial_capital: float = 100000.0,
                    ) -> PerformanceStats:
     """

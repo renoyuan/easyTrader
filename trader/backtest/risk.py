@@ -73,6 +73,7 @@ class RiskManager:
         self.sl_key_price_pct: float = 0.05
 
         # ── 止盈配置 ──
+        self.sp_mode: str = "graded"  # "graded" 或 "target"
         self.sp_graded_levels: List[Tuple[float, float]] = [
             (0.05, 0.3),
             (0.10, 0.3),
@@ -168,7 +169,9 @@ class RiskManager:
                           entry_price: float) -> Tuple[RiskResult, float]:
         """
         [必须] 止盈检查
-        支持分级止盈（一阶减仓、二阶全平）、目标价止盈、RSI 超买止盈。
+        支持分级止盈、目标价止盈，根据 sp_mode 互斥选择：
+          - "graded" → 只走分级止盈
+          - "target" → 只走目标价止盈
         
         :return: (RiskResult, partial_exit_ratio) 
                   partial_exit_ratio: 本次需要平仓的仓位比例（分级止盈用）
@@ -176,43 +179,35 @@ class RiskManager:
         result = RiskResult()
         partial_ratio = 1.0  # 默认全平
         current_high = tick.high
-        current_close = tick.close
 
-        # 1. 分级止盈
-        for level_pct, exit_ratio in self.sp_graded_levels:
-            target_price = entry_price * (1 + level_pct)
-            if current_high >= target_price:
+        # ── 根据 sp_mode 选择止盈路径（互斥） ──
+        if self.sp_mode == "graded":
+            # 1. 分级止盈（互斥路径 A）
+            for level_pct, exit_ratio in self.sp_graded_levels:
+                target_price = entry_price * (1 + level_pct)
+                if current_high >= target_price:
+                    result.triggered = True
+                    result.exit_reason = ExitReason.STOP_PROFIT_GRADED
+                    partial_ratio = exit_ratio
+                    result.exit_price = target_price
+                    result.exit_detail = (f"分级止盈触发: 浮盈 {level_pct:.1%} 级别, "
+                                          f"平仓 {exit_ratio:.0%} 仓位")
+                    result.stop_profit_triggered = True
+
+                    # 如果这是最高级别的止盈，全平
+                    if level_pct == self.sp_graded_levels[-1][0]:
+                        partial_ratio = 1.0
+                    return result, partial_ratio
+        else:
+            # 2. 目标价止盈（互斥路径 B）
+            sp_target = entry_price * (1 + self.sp_target_price_pct)
+            if current_high >= sp_target:
                 result.triggered = True
-                result.exit_reason = ExitReason.STOP_PROFIT_GRADED
-                partial_ratio = exit_ratio
-                result.exit_price = target_price
-                result.exit_detail = (f"分级止盈触发: 浮盈 {level_pct:.1%} 级别, "
-                                      f"平仓 {exit_ratio:.0%} 仓位")
+                result.exit_reason = ExitReason.STOP_PROFIT_TARGET
+                result.exit_price = sp_target
+                result.exit_detail = f"目标价止盈: 目标 {self.sp_target_price_pct:.1%}, 止盈价 {sp_target:.2f}"
                 result.stop_profit_triggered = True
-
-                # 如果这是最高级别的止盈，全平
-                if level_pct == self.sp_graded_levels[-1][0]:
-                    partial_ratio = 1.0
-                return result, partial_ratio
-
-        # 2. 目标价止盈
-        sp_target = entry_price * (1 + self.sp_target_price_pct)
-        if current_high >= sp_target:
-            result.triggered = True
-            result.exit_reason = ExitReason.STOP_PROFIT_TARGET
-            result.exit_price = sp_target
-            result.exit_detail = f"目标价止盈: 目标 {self.sp_target_price_pct:.1%}, 止盈价 {sp_target:.2f}"
-            result.stop_profit_triggered = True
-            return result, 1.0
-
-        # 3. RSI 超买止盈
-        if tick.rsi is not None and tick.rsi >= self.sp_rsi_overbought:
-            # 需要确认 RSI 从超买区回落
-            result.triggered = True
-            result.exit_reason = ExitReason.STOP_PROFIT_RSI
-            result.exit_price = current_close
-            result.exit_detail = f"RSI超买止盈: RSI={tick.rsi:.1f} >= {self.sp_rsi_overbought}"
-            result.stop_profit_triggered = True
+                return result, 1.0
 
         return result, partial_ratio
 

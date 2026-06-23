@@ -204,7 +204,7 @@ class ScorerSignal(BaseSignal):
     这是回测模块与 scorer 模块的桥梁。
     """
 
-    def __init__(self, scorer_name: str, min_score: float = 70.0):
+    def __init__(self, scorer_name: str, min_score: float = 80.0):
         super().__init__(
             name=f"评分触发({scorer_name}>{min_score})",
             source=SignalSource.SCORER

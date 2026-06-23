@@ -40,6 +40,7 @@ class PerformanceStats:
     total_pnl: float = 0.0        # 总盈亏
     total_net_pnl: float = 0.0    # 净盈亏（扣费后）
     total_fee: float = 0.0        # 总费用
+    total_return_pct: float = 0.0 # 总收益率%
     avg_pnl: float = 0.0          # 平均每笔盈亏
     avg_pnl_pct: float = 0.0      # 平均每笔盈亏%
     med_pnl_pct: float = 0.0      # 中位数盈亏%
@@ -85,6 +86,7 @@ class PerformanceStats:
                 "胜率": f"{self.win_rate:.2f}%",
             },
             "收益指标": {
+                "总收益率": f"{self.total_return_pct:.2f}%",
                 "总盈亏": f"{self.total_pnl:.2f}",
                 "净盈亏(扣费后)": f"{self.total_net_pnl:.2f}",
                 "总费用": f"{self.total_fee:.2f}",
@@ -177,6 +179,9 @@ def compute_performance(trades: List[TradeRecord],
     stats.total_pnl = sum(t.pnl for t in trades)
     stats.total_net_pnl = sum(t.net_pnl for t in trades)
     stats.total_fee = sum(t.fee for t in trades)
+    # 总收益率 = (最终资金 - 初始资金) / 初始资金
+    end_capital = initial_capital + stats.total_net_pnl
+    stats.total_return_pct = (end_capital - initial_capital) / initial_capital * 100
     stats.avg_pnl = stats.total_pnl / stats.total_trades if stats.total_trades > 0 else 0
     stats.avg_pnl_pct = sum(t.pnl_pct for t in trades) / stats.total_trades * 100 if stats.total_trades > 0 else 0
 

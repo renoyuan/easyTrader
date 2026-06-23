@@ -34,12 +34,13 @@ class GrahamScorer:
     # =========================
     # 格雷厄姆评分核心
     # =========================
-    def score(self, code, years=5):
+    def score(self, code, years=5, as_of_date=None):
 
         print(f"[graham] 开始评分: {code}")
-        current_year = datetime.now().year
+        ref_date = as_of_date or datetime.now()
+        current_year = ref_date.year if hasattr(ref_date, 'year') else ref_date.year
         years_list = list(range(current_year - years, current_year + 1))
-        print(f"[graham] 计算财务指标...")
+        print(f"[graham] 计算财务指标: as_of={ref_date}...")
 
         yearly = self.proc.calculate_yearly_features(code, years_list)
 

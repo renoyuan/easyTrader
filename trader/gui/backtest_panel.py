@@ -51,8 +51,8 @@ class BacktestPanel:
     ]
 
     def __init__(self, notebook: ttk.Notebook,
-                 status_callback, info_callback,
-                 tree_callback) -> None:
+             status_callback, info_callback,
+             tree_callback) -> None:
         """
         :param notebook: 右侧 Notebook，用于添加回测标签页
         :param status_callback: 更新状态栏回调 (msg, is_ok)
@@ -62,6 +62,24 @@ class BacktestPanel:
         self._set_status = status_callback
         self._info = info_callback
         self._update_tree = tree_callback
+
+        # ── 风控默认配置（可在弹窗中修改） ──
+        # 止损
+        self._risk_sl_fixed_ratio = 0.07       # 固定比例止损 7%
+        self._risk_sl_atr_multiplier = 2.0      # ATR 动态止损倍数
+        self._risk_sl_atr_enabled = True        # 启用 ATR 动态止损
+        # 止盈模式： "graded" = 分级止盈, "target" = 目标价止盈
+        self._risk_sp_mode = "graded"
+        self._risk_sp_graded_levels = [
+            (0.05, 0.3),
+            (0.10, 0.3),
+            (0.15, 0.4),
+        ]
+        self._risk_sp_target_price_pct = 0.15   # 目标价止盈比例
+
+        # 时间止损（最大持股时间）
+        self._risk_ts_enabled = True
+        self._risk_ts_max_bars = 60
 
         # ── 回测标签页 ──
         self.tab = tk.Frame(notebook, bg=COLOR_CARD_BG)
@@ -112,7 +130,7 @@ class BacktestPanel:
 
         tk.Label(row1, text="最低评分：", bg=COLOR_BG,
                  font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT)
-        self._min_score_var = tk.StringVar(value="70")
+        self._min_score_var = tk.StringVar(value="80")
         tk.Spinbox(row1, from_=0, to=100, textvariable=self._min_score_var,
                    width=5, font=("Consolas", 9),
                    relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(2, 0))
@@ -142,25 +160,9 @@ class BacktestPanel:
         self._capital_entry.pack(side=tk.LEFT, padx=(2, 0))
         self._capital_entry.insert(0, "1000000")
 
-        # 第3行：风控参数
+                # 第3行：仓位模式 + 设置风控按钮（独立弹窗）
         row3 = tk.Frame(params, bg=COLOR_BG)
         row3.pack(fill=tk.X, padx=10, pady=(4, 8))
-
-        tk.Label(row3, text="止损比例：", bg=COLOR_BG,
-                 font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT)
-        self._sl_var = tk.StringVar(value="7")
-        tk.Spinbox(row3, from_=1, to=30, textvariable=self._sl_var,
-                   width=4, font=("Consolas", 9),
-                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(2, 4))
-
-        tk.Label(row3, text="ATR止损：", bg=COLOR_BG,
-                 font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT)
-        self._atr_var = tk.StringVar(value="2.0")
-        tk.Spinbox(row3, from_=1, to=6, increment=0.5, textvariable=self._atr_var,
-                   width=4, font=("Consolas", 9),
-                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(2, 4))
-        tk.Label(row3, text="倍", bg=COLOR_BG,
-                 font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT)
 
         tk.Label(row3, text="仓位模式：", bg=COLOR_BG,
                  font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT)
@@ -171,30 +173,38 @@ class BacktestPanel:
                                   font=("微软雅黑", 9))
         pos_combo.pack(side=tk.LEFT, padx=(2, 12))
 
-        tk.Label(row3, text="止盈比例：", bg=COLOR_BG,
-                 font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT)
-        self._sp_var = tk.StringVar(value="15")
-        tk.Spinbox(row3, from_=1, to=50, textvariable=self._sp_var,
-                   width=4, font=("Consolas", 9),
-                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(2, 12))
+        tk.Button(
+            row3, text="⚙ 设置止盈止损",
+            command=self._open_risk_settings,
+            bg="#5f6368", fg="white",
+            font=("微软雅黑", 9, "bold"),
+            relief=tk.FLAT, bd=0, cursor="hand2",
+            activebackground="#5f6368", activeforeground="white",
+            padx=12, pady=4,
+        ).pack(side=tk.LEFT, padx=(0, 12))
 
         self._filter_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(row3, text="启用信号过滤", variable=self._filter_var,
+        tk.Checkbutton(row3, text="信号过滤", variable=self._filter_var,
                        bg=COLOR_BG, font=("微软雅黑", 9),
                        fg=COLOR_TEXT, selectcolor=COLOR_BG).pack(
-                           side=tk.LEFT, padx=(16, 0))
+                           side=tk.LEFT, padx=(4, 0))
 
         self._bs_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(row3, text="黑天鹅保护", variable=self._bs_var,
+        tk.Checkbutton(row3, text="黑天鹅", variable=self._bs_var,
                        bg=COLOR_BG, font=("微软雅黑", 9),
                        fg=COLOR_TEXT, selectcolor=COLOR_BG).pack(
-                           side=tk.LEFT, padx=(8, 0))
+                           side=tk.LEFT, padx=(6, 0))
 
         self._daily_log_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(row3, text="每日日志", variable=self._daily_log_var,
+        tk.Checkbutton(row3, text="日志", variable=self._daily_log_var,
                        bg=COLOR_BG, font=("微软雅黑", 9),
                        fg=COLOR_TEXT, selectcolor=COLOR_BG).pack(
-                           side=tk.LEFT, padx=(8, 0))
+                           side=tk.LEFT, padx=(6, 0))
+
+        self._risk_status_var = tk.StringVar(value="止盈:分级 止损:7%+ATR")
+        tk.Label(row3, textvariable=self._risk_status_var,
+                 bg=COLOR_BG, fg=COLOR_TEXT_SECONDARY,
+                 font=("微软雅黑", 8)).pack(side=tk.LEFT, padx=(8, 0))
 
         # ── 操作按钮区 ──
         btn_frame = tk.Frame(self.tab, bg=COLOR_CARD_BG)
@@ -306,11 +316,7 @@ class BacktestPanel:
             end_date = self._end_entry.get().strip()
             initial_capital = float(self._capital_entry.get().strip())
             min_score = float(self._min_score_var.get().strip())
-            sl_ratio = float(self._sl_var.get().strip()) / 100.0
-            sp_ratio = float(self._sp_var.get().strip()) / 100.0
-            atr_multiplier = float(self._atr_var.get().strip())
             pos_text = self._pos_var.get().strip()
-            # 从 "100% 满仓" 中提取数字部分
             pos_ratio = float(pos_text.split("%")[0]) / 100.0
         except ValueError:
             messagebox.showwarning("参数错误", "请检查数字格式参数！")
@@ -320,6 +326,11 @@ class BacktestPanel:
         enable_filter = self._filter_var.get()
         enable_bs = self._bs_var.get()
         enable_daily_log = self._daily_log_var.get()
+
+        # ── 风控参数（从独立配置中读取） ──
+        sl_ratio = self._risk_sl_fixed_ratio
+        sp_ratio = self._risk_sp_target_price_pct
+        atr_multiplier = self._risk_sl_atr_multiplier if self._risk_sl_atr_enabled else 0.0
 
         if self._is_running:
             messagebox.showinfo("提示", "回测正在运行中，请等待完成")
@@ -364,11 +375,23 @@ class BacktestPanel:
             # 配置仓位
             engine.fixed_position_ratio = pos_ratio
 
-            # 配置风控
+                        # 配置风控
             engine.risk_manager.sl_fixed_ratio = sl_ratio
-            engine.risk_manager.sl_atr_multiplier = atr_multiplier
-            engine.risk_manager.sp_target_price_pct = sp_ratio
+            engine.risk_manager.sl_atr_multiplier = atr_multiplier if atr_multiplier > 0 else self._risk_sl_atr_multiplier
             engine.risk_manager.bs_enabled = enable_bs
+
+            # 配置时间止损
+            engine.risk_manager.ts_enabled = self._risk_ts_enabled
+            engine.risk_manager.ts_max_bars = self._risk_ts_max_bars
+
+            # ── 配置止盈模式（互斥） ──
+            engine.risk_manager.sp_mode = self._risk_sp_mode
+            if self._risk_sp_mode == "graded":
+                engine.risk_manager.sp_graded_levels = self._risk_sp_graded_levels
+                self._append_report(f"📌 止盈模式: 分级止盈 {self._risk_sp_graded_levels}\n")
+            else:
+                engine.risk_manager.sp_target_price_pct = sp_ratio
+                self._append_report(f"📌 止盈模式: 目标价止盈 {sp_ratio:.0%}\n")
 
             # 配置过滤
             engine.signal_filter.enabled = enable_filter
@@ -719,9 +742,9 @@ class BacktestPanel:
 
     def _append_daily_log(self, info: dict) -> None:
         """格式化每日日志并追加到回测报告区（线程安全）
-        
+
         两种模式：
-        - 空仓观望 → 精简模式 + 空仓原因（评分/信号/过滤）
+        - 空仓观望 → 精简模式 + 简洁空仓原因
         - 有持仓/开平仓 → 完整模式（含浮盈、持仓明细、交易说明）
         """
         # 确定当日交易说明
@@ -736,38 +759,11 @@ class BacktestPanel:
         else:
             if not info["just_opened"] and not info["just_closed"]:
                 notes.append("空仓")
-                # ── 空仓原因分析 ──
-                score = info.get("today_score", 0)
-                rating = info.get("today_rating", "")
-                signal_triggered = info.get("signal_triggered", False)
-                signal_reason = info.get("signal_reason", "")
-                filter_passed = info.get("filter_passed", False)
-                filter_reason = info.get("filter_reason", "")
-
-                if score > 0:
-                    notes.append(f"评分={score}")
-                    if rating:
-                        notes.append(rating)
-                if signal_triggered:
-                    notes.append("信号触发")
-                    if not filter_passed:
-                        notes.append(f"被过滤({filter_reason})" if filter_reason else "被过滤")
-                    else:
-                        # 信号触发 + 过滤通过，但仍然没开仓 → 资金/数量问题
-                        skip = info.get("open_skipped_reason", "")
-                        if skip:
-                            notes.append(f"未开仓({skip})")
-                else:
-                    if signal_reason:
-                        notes.append(signal_reason)
-                    else:
-                        notes.append("无信号")
 
         note_str = " | ".join(notes) if notes else ""
 
         if info["has_position"]:
             # ── 完整模式（有持仓）：含浮盈和持仓明细 ──
-            # 格式化浮盈
             unrealized_info = ""
             if info["position_unrealized_pnl"] != 0:
                 pnl = info["position_unrealized_pnl"]
@@ -775,7 +771,6 @@ class BacktestPanel:
                 sign = "+" if pnl > 0 else ""
                 unrealized_info = f"{sign}{pnl:.2f}({pnl_pct:+.2f}%)"
 
-            # 持仓描述
             pos_info = f"{info['position_quantity']}股@{info['position_cost']}"
 
             line = (
@@ -789,14 +784,21 @@ class BacktestPanel:
                 f"{note_str}"
             )
 
-            # 关键操作行用标记
             if info["just_opened"] or info["just_closed"]:
                 line = f"  ▶ {line}"
         else:
-            # ── 精简模式（空仓）：显示基础信息 + 空仓原因 ──
+            # ── 精简模式（空仓）：简洁空仓原因 ──
             score_str = f"评分={info.get('today_score', 0)}"
-            if info.get("today_rating", ""):
-                score_str += f"({info['today_rating']})"
+            score = info.get("today_score", 0)
+            min_score_val = self._min_score_var.get().strip() if hasattr(self, '_min_score_var') else "80"
+            if score > 0 and score < float(min_score_val):
+                reason_short = f"评分{score}<阈值{min_score_val}"
+            elif info.get("signal_reason", ""):
+                reason_short = info["signal_reason"]
+            elif info.get("signal_triggered", False) and not info.get("filter_passed", False):
+                reason_short = f"被过滤({info.get('filter_reason', '')})"
+            else:
+                reason_short = "无信号"
 
             line = (
                 f"{info['date']:<12} "
@@ -804,11 +806,246 @@ class BacktestPanel:
                 f"{info['total_value']:>10.2f} "
                 f"{score_str:<18} "
                 f"{info['today_pct_chg']:>+7.2f}% "
-                f"{note_str:<40} "
+                f"{reason_short:<40} "
                 f"{info['total_fee']:>8.2f}"
             )
 
         self._append_report(line + "\n")
+
+    # ═══════════════════════════════════════════
+    #  止盈止损独立配置弹窗
+    # ═══════════════════════════════════════════
+
+    def _open_risk_settings(self) -> None:
+        """打开止盈止损独立配置弹窗"""
+        win = tk.Toplevel(self.tab)
+        win.title("⚙ 止盈止损配置")
+        win.geometry("520x480")
+        win.configure(bg=COLOR_CARD_BG)
+        win.transient(self.tab)
+        win.grab_set()
+        win.resizable(False, False)
+
+        # ── 止损区域 ──
+        sl_frame = tk.LabelFrame(win, text="⛔ 止损配置", bg=COLOR_CARD_BG,
+                                  font=("微软雅黑", 10, "bold"),
+                                  fg=COLOR_TEXT,
+                                  relief=tk.RIDGE, bd=1, padx=10, pady=8)
+        sl_frame.pack(fill=tk.X, padx=15, pady=(12, 6))
+
+        # 固定比例止损
+        row_sl1 = tk.Frame(sl_frame, bg=COLOR_CARD_BG)
+        row_sl1.pack(fill=tk.X, pady=3)
+
+        self._risk_sl_fixed_var = tk.DoubleVar(value=self._risk_sl_fixed_ratio * 100)
+        tk.Label(row_sl1, text="固定比例止损：", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 9), fg=COLOR_TEXT,
+                 width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Spinbox(row_sl1, from_=0, to=30, textvariable=self._risk_sl_fixed_var,
+                   width=6, font=("Consolas", 9),
+                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(2, 4))
+        tk.Label(row_sl1, text="%", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT)
+        tk.Label(row_sl1, text="  跌超此比例 → 全仓卖出", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 8), fg=COLOR_TEXT_SECONDARY).pack(side=tk.LEFT, padx=(6, 0))
+
+        # ATR 动态止损
+        row_sl2 = tk.Frame(sl_frame, bg=COLOR_CARD_BG)
+        row_sl2.pack(fill=tk.X, pady=3)
+
+        self._risk_sl_atr_enabled_var = tk.BooleanVar(value=self._risk_sl_atr_enabled)
+        tk.Checkbutton(row_sl2, text="启用 ATR 动态止损", variable=self._risk_sl_atr_enabled_var,
+                       bg=COLOR_CARD_BG, font=("微软雅黑", 9),
+                       fg=COLOR_TEXT, selectcolor=COLOR_CARD_BG).pack(side=tk.LEFT)
+
+        self._risk_sl_atr_var = tk.DoubleVar(value=self._risk_sl_atr_multiplier)
+        tk.Spinbox(row_sl2, from_=1.0, to=6.0, increment=0.5,
+                   textvariable=self._risk_sl_atr_var,
+                   width=6, font=("Consolas", 9),
+                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(6, 4))
+        tk.Label(row_sl2, text="倍 ATR", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT)
+        tk.Label(row_sl2, text="  (越大越宽松)", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 8), fg=COLOR_TEXT_SECONDARY).pack(side=tk.LEFT)
+
+                # ── 分隔线 ──
+        ttk.Separator(win, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=15, pady=6)
+
+        # ── 时间止损区域 ──
+        ts_frame = tk.LabelFrame(win, text="⏱ 最大持股时间", bg=COLOR_CARD_BG,
+                                  font=("微软雅黑", 10, "bold"),
+                                  fg=COLOR_TEXT,
+                                  relief=tk.RIDGE, bd=1, padx=10, pady=8)
+        ts_frame.pack(fill=tk.X, padx=15, pady=6)
+
+        row_ts1 = tk.Frame(ts_frame, bg=COLOR_CARD_BG)
+        row_ts1.pack(fill=tk.X, pady=3)
+
+        self._risk_ts_enabled_var = tk.BooleanVar(value=self._risk_ts_enabled if hasattr(self, '_risk_ts_enabled') else True)
+        tk.Checkbutton(row_ts1, text="启用时间止损", variable=self._risk_ts_enabled_var,
+                       bg=COLOR_CARD_BG, font=("微软雅黑", 9),
+                       fg=COLOR_TEXT, selectcolor=COLOR_CARD_BG).pack(side=tk.LEFT)
+
+        self._risk_ts_max_bars_var = tk.IntVar(value=self._risk_ts_max_bars if hasattr(self, '_risk_ts_max_bars') else 60)
+        tk.Label(row_ts1, text="  持股超过", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT, padx=(6, 0))
+        tk.Spinbox(row_ts1, from_=10, to=240, textvariable=self._risk_ts_max_bars_var,
+                   width=6, font=("Consolas", 9),
+                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(4, 2))
+        tk.Label(row_ts1, text="根K线 → 强制卖出", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT)
+
+        # ── 分隔线 ──
+        ttk.Separator(win, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=15, pady=6)
+
+        # ── 止盈区域 ──
+        sp_frame = tk.LabelFrame(win, text="💰 止盈配置", bg=COLOR_CARD_BG,
+                                  font=("微软雅黑", 10, "bold"),
+                                  fg=COLOR_TEXT,
+                                  relief=tk.RIDGE, bd=1, padx=10, pady=8)
+        sp_frame.pack(fill=tk.X, padx=15, pady=6)
+
+        # 止盈模式选择
+        row_sp0 = tk.Frame(sp_frame, bg=COLOR_CARD_BG)
+        row_sp0.pack(fill=tk.X, pady=3)
+
+        self._risk_sp_mode_var = tk.StringVar(value=self._risk_sp_mode)
+        tk.Label(row_sp0, text="止盈模式：", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 9), fg=COLOR_TEXT,
+                 width=14, anchor=tk.W).pack(side=tk.LEFT)
+        ttk.Combobox(row_sp0, textvariable=self._risk_sp_mode_var,
+                     values=["graded", "target"],
+                     state="readonly", width=10,
+                     font=("微软雅黑", 9)).pack(side=tk.LEFT)
+        tk.Label(row_sp0, text="  graded=分级止盈  target=目标价止盈",
+                 bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 8), fg=COLOR_TEXT_SECONDARY).pack(side=tk.LEFT, padx=(6, 0))
+
+        # 分级止盈参数（3 档）
+        row_sp1 = tk.Frame(sp_frame, bg=COLOR_CARD_BG)
+        row_sp1.pack(fill=tk.X, pady=3)
+
+        tk.Label(row_sp1, text="分级止盈档位：", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 9), fg=COLOR_TEXT,
+                 width=14, anchor=tk.W).pack(side=tk.LEFT)
+
+        self._risk_sp_l1_pct_var = tk.DoubleVar(value=self._risk_sp_graded_levels[0][0] * 100)
+        self._risk_sp_l1_ratio_var = tk.DoubleVar(value=self._risk_sp_graded_levels[0][1] * 100)
+        tk.Label(row_sp1, text="档1:", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 8), fg=COLOR_TEXT).pack(side=tk.LEFT)
+        tk.Spinbox(row_sp1, from_=1, to=50, textvariable=self._risk_sp_l1_pct_var,
+                   width=4, font=("Consolas", 8),
+                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(1, 1))
+        tk.Label(row_sp1, text="%→卖", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 8), fg=COLOR_TEXT).pack(side=tk.LEFT)
+        tk.Spinbox(row_sp1, from_=10, to=100, textvariable=self._risk_sp_l1_ratio_var,
+                   width=4, font=("Consolas", 8),
+                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(1, 1))
+        tk.Label(row_sp1, text="%", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 8), fg=COLOR_TEXT).pack(side=tk.LEFT)
+
+        row_sp2 = tk.Frame(sp_frame, bg=COLOR_CARD_BG)
+        row_sp2.pack(fill=tk.X, pady=3)
+
+        self._risk_sp_l2_pct_var = tk.DoubleVar(value=self._risk_sp_graded_levels[1][0] * 100)
+        self._risk_sp_l2_ratio_var = tk.DoubleVar(value=self._risk_sp_graded_levels[1][1] * 100)
+        tk.Label(row_sp2, text="档2:", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 8), fg=COLOR_TEXT).pack(side=tk.LEFT, padx=(14+12+2, 0))
+        tk.Spinbox(row_sp2, from_=1, to=50, textvariable=self._risk_sp_l2_pct_var,
+                   width=4, font=("Consolas", 8),
+                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(1, 1))
+        tk.Label(row_sp2, text="%→卖", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 8), fg=COLOR_TEXT).pack(side=tk.LEFT)
+        tk.Spinbox(row_sp2, from_=10, to=100, textvariable=self._risk_sp_l2_ratio_var,
+                   width=4, font=("Consolas", 8),
+                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(1, 1))
+        tk.Label(row_sp2, text="%", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 8), fg=COLOR_TEXT).pack(side=tk.LEFT)
+
+        row_sp3 = tk.Frame(sp_frame, bg=COLOR_CARD_BG)
+        row_sp3.pack(fill=tk.X, pady=3)
+
+        self._risk_sp_l3_pct_var = tk.DoubleVar(value=self._risk_sp_graded_levels[2][0] * 100)
+        self._risk_sp_l3_ratio_var = tk.DoubleVar(value=self._risk_sp_graded_levels[2][1] * 100)
+        tk.Label(row_sp3, text="档3:", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 8), fg=COLOR_TEXT).pack(side=tk.LEFT, padx=(14+12+2, 0))
+        tk.Spinbox(row_sp3, from_=1, to=50, textvariable=self._risk_sp_l3_pct_var,
+                   width=4, font=("Consolas", 8),
+                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(1, 1))
+        tk.Label(row_sp3, text="%→卖", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 8), fg=COLOR_TEXT).pack(side=tk.LEFT)
+        tk.Spinbox(row_sp3, from_=10, to=100, textvariable=self._risk_sp_l3_ratio_var,
+                   width=4, font=("Consolas", 8),
+                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(1, 1))
+        tk.Label(row_sp3, text="%", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 8), fg=COLOR_TEXT).pack(side=tk.LEFT)
+
+        # 目标价止盈
+        row_sp4 = tk.Frame(sp_frame, bg=COLOR_CARD_BG)
+        row_sp4.pack(fill=tk.X, pady=3)
+
+        self._risk_sp_target_var = tk.DoubleVar(value=self._risk_sp_target_price_pct * 100)
+        tk.Label(row_sp4, text="目标价止盈：", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 9), fg=COLOR_TEXT,
+                 width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Spinbox(row_sp4, from_=1, to=100, textvariable=self._risk_sp_target_var,
+                   width=6, font=("Consolas", 9),
+                   relief=tk.SUNKEN, bd=1).pack(side=tk.LEFT, padx=(2, 4))
+        tk.Label(row_sp4, text="%  选 target 模式时生效", bg=COLOR_CARD_BG,
+                 font=("微软雅黑", 8), fg=COLOR_TEXT_SECONDARY).pack(side=tk.LEFT)
+
+        # ── 按钮区域 ──
+        btn_row = tk.Frame(win, bg=COLOR_CARD_BG)
+        btn_row.pack(fill=tk.X, padx=15, pady=(10, 12))
+
+        def _save_risk_config():
+            """保存风控配置到 self 变量"""
+            # 止损
+            self._risk_sl_fixed_ratio = self._risk_sl_fixed_var.get() / 100.0
+            self._risk_sl_atr_enabled = self._risk_sl_atr_enabled_var.get()
+            self._risk_sl_atr_multiplier = self._risk_sl_atr_var.get()
+
+            # 止盈模式
+            self._risk_sp_mode = self._risk_sp_mode_var.get()
+
+            # 分级止盈档位
+            self._risk_sp_graded_levels = [
+                (self._risk_sp_l1_pct_var.get() / 100.0, self._risk_sp_l1_ratio_var.get() / 100.0),
+                (self._risk_sp_l2_pct_var.get() / 100.0, self._risk_sp_l2_ratio_var.get() / 100.0),
+                (self._risk_sp_l3_pct_var.get() / 100.0, self._risk_sp_l3_ratio_var.get() / 100.0),
+            ]
+
+            # 目标价止盈
+            self._risk_sp_target_price_pct = self._risk_sp_target_var.get() / 100.0
+
+            # 时间止损
+            self._risk_ts_enabled = self._risk_ts_enabled_var.get()
+            self._risk_ts_max_bars = self._risk_ts_max_bars_var.get()
+
+            # 更新状态标签
+            self._update_risk_status()
+
+            win.destroy()
+
+        tk.Button(btn_row, text="✅ 保存", command=_save_risk_config,
+                  bg=COLOR_SUCCESS, fg="white",
+                  font=("微软雅黑", 10, "bold"),
+                  relief=tk.FLAT, bd=0, cursor="hand2",
+                  padx=20, pady=6).pack(side=tk.LEFT, padx=(0, 10))
+
+        tk.Button(btn_row, text="❌ 取消", command=win.destroy,
+                  bg="#e8eaed", fg=COLOR_TEXT,
+                  font=("微软雅黑", 10),
+                  relief=tk.FLAT, bd=0, cursor="hand2",
+                  padx=20, pady=6).pack(side=tk.LEFT)
+
+    def _update_risk_status(self) -> None:
+        """更新状态栏中的风控配置摘要"""
+        mode_text = "分级" if self._risk_sp_mode == "graded" else "目标价"
+        atr_text = f"+ATR{self._risk_sl_atr_multiplier:.1f}倍" if self._risk_sl_atr_enabled else ""
+        ts_text = f" 持股≤{self._risk_ts_max_bars}天" if self._risk_ts_enabled else ""
+        status = f"止盈:{mode_text} 止损:{self._risk_sl_fixed_ratio:.0%}{atr_text}{ts_text}"
+        self._risk_status_var.set(status)
 
     # ═══════════════════════════════════════════
     #  数据加载配置

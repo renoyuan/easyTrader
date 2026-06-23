@@ -148,7 +148,7 @@ class GeLanScorer:
     # =========================
     # 核心评分
     # =========================
-    def score(self, code, years=5):
+    def score(self, code, years=5, as_of_date=None):
         print(f"[gelan] 开始评分: {code}")
 
         # 1. 判断是否医药股
@@ -170,9 +170,10 @@ class GeLanScorer:
         print(f"[gelan] ✅ 确认医药股: {match_reason}")
 
         # 2. 获取财务数据
-        current_year = datetime.now().year
+        ref_date = as_of_date or datetime.now()
+        current_year = ref_date.year if hasattr(ref_date, 'year') else ref_date.year
         years_list = list(range(current_year - years, current_year + 1))
-        print(f"[gelan] 读取近{years}年财报...")
+        print(f"[gelan] 读取近{years}年财报: as_of={ref_date}...")
 
         yearly = self.proc.calculate_yearly_features(code, years_list)
         if yearly.empty or len(yearly) < 2:

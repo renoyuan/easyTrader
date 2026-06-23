@@ -84,7 +84,23 @@ class XuXiangScorer:
         return 0
 
     # =========================
-    # 主评分
+    # 主评分（使用外部K线数据）
+    # =========================
+    def score_from_kline(self, code, kline_df):
+        """
+        使用已加载的 K 线 DataFrame 进行评分（不回测中专用，避免评分器自行拉取数据）
+        """
+        print(f"[xuxiang] 评分(使用回测数据): {code}")
+        if kline_df.empty:
+            return None
+
+        close = kline_df["close"] if "close" in kline_df else kline_df.iloc[:, 1]
+        volume = kline_df["volume"] if "volume" in kline_df else kline_df.iloc[:, 4]
+
+        return self._calc_score(code, close, volume)
+
+    # =========================
+    # 主评分（原始接口）
     # =========================
     def score(self, code, years=1):
 
@@ -104,6 +120,10 @@ class XuXiangScorer:
         close = kline["close"] if "close" in kline else kline.iloc[:, 1]
         volume = kline["volume"] if "volume" in kline else kline.iloc[:, 4]
 
+        return self._calc_score(code, close, volume)
+
+    def _calc_score(self, code, close, volume):
+        """核心评分计算（提取为独立方法供 score 和 score_from_kline 共用）"""
         score = 0
 
         # 1. 动量（核心）
