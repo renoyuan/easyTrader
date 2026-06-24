@@ -8,5 +8,7 @@
 
 from .market_review import MarketReviewer
 from .stock_review import StockReviewer
+from .industry_review import IndustryReviewer
 
-__all__ = ["MarketReviewer", "StockReviewer"]
+__all__ = ["MarketReviewer", "StockReviewer", "IndustryReviewer"]
+

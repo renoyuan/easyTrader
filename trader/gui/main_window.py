@@ -251,6 +251,11 @@ class EasyTraderGUI:
             self.input_stock_review_code, "#ab47bc"
         ).pack(fill=tk.X, pady=4)
 
+        self._create_styled_button(
+            btn_frame, "🏭  行业复盘",
+            self.reviewer.run_industry_review, "#00acc1"
+        ).pack(fill=tk.X, pady=4)
+
         # ═══════════ 量化回测 ═══════════
         tk.Label(
             btn_frame, text="══════ 量化回测 ══════",

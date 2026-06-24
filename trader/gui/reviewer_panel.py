@@ -16,7 +16,7 @@ from tkinter import ttk, messagebox
 import traceback
 from datetime import datetime, timedelta
 
-from trader.reviewer import MarketReviewer, StockReviewer
+from trader.reviewer import MarketReviewer, StockReviewer, IndustryReviewer
 from trader.ai import DeepSeekClient
 
 
@@ -32,6 +32,7 @@ class ReviewerPanel:
 
         self.market = MarketReviewer()
         self.stock = StockReviewer()
+        self.industry = IndustryReviewer()
 
     # ──────────────────────────
     #  市场复盘
@@ -220,3 +221,128 @@ class ReviewerPanel:
             self._info(f"❌ 个股复盘异常: {e}")
             traceback.print_exc()
             self._set_status("个股复盘失败", False)
+
+    # ──────────────────────────
+    #  行业复盘
+    # ──────────────────────────
+    def run_industry_review(self) -> None:
+        """执行行业复盘"""
+        self._set_status("⏳ 行业复盘中...", True)
+        self._info(f"\n{'='*55}")
+        self._info("📊  行业复盘")
+        self._info(f"{'='*55}")
+        print(f"\n📊 行业复盘 ...")
+
+        try:
+            result = self.industry.full_review()
+            if not result:
+                self._info("❌ 未获取到行业复盘数据")
+                self._set_status("行业复盘失败", False)
+                return
+
+            stat_date = result.get("统计日期", "N/A")
+            total_ind = result.get("行业总数", "N/A")
+            total_mv = result.get("A股总市值(亿)", "N/A")
+
+            self._info(f"  统计日期: {stat_date}")
+            self._info(f"  行业总数: {total_ind}")
+            self._info(f"  A股总市值: {total_mv} 亿")
+
+            tree_rows = [
+                (f"📊 行业复盘", f"{stat_date}", f"共{total_ind}个行业"),
+                ("A股总市值", f"{total_mv}亿", ""),
+            ]
+
+            # ── 市值排名 TOP5 ──
+            self._info(f"\n🔹 市值排名 TOP5")
+            self._info(f"{'-'*55}")
+            top5_mv = result.get("市值排名TOP5", [])
+            if top5_mv:
+                for item in top5_mv:
+                    parent = item.get("parent_industry", {})
+                    p_str = ""
+                    if parent.get("level1"):
+                        p_str = f"  [{parent.get('level1', '')}"
+                        if parent.get("level2"):
+                            p_str += f" > {parent.get('level2', '')}"
+                        p_str += "]"
+                    line = (f"  #{item['rank']} {item['board_name']:<12} "
+                            f"市值 {item['total_mv']:>10.2f}亿  "
+                            f"A股占比 {item['mv_ratio']:.2f}%"
+                            f"{p_str}")
+                    self._info(line)
+                    tree_rows.append((
+                        f"  #{item['rank']} {item['board_name']}",
+                        f"{item['total_mv']:.2f}亿",
+                        f"A股占比{item['mv_ratio']:.2f}%{p_str}"
+                    ))
+            else:
+                self._info("  ⚠️ 实时行情不可用（需连接东方财富数据源）")
+                tree_rows.append(("  市值排名", "⚠️", "实时行情不可用"))
+
+            # ── 热度排名 ──
+            for period in ["昨日", "近三月", "近一年"]:
+                period_data = result.get("热度排名", {}).get(period, {})
+                if not period_data:
+                    continue
+
+                self._info(f"\n🔹 {period} 涨跌幅排名")
+                self._info(f"{'-'*55}")
+
+                up_list = period_data.get("涨幅TOP5", [])
+                down_list = period_data.get("跌幅TOP5", [])
+
+                if up_list:
+                    self._info(f"  📈 涨幅 TOP5:")
+                    for item in up_list:
+                        parent = item.get("parent_industry", {})
+                        p_str = ""
+                        if parent.get("level1"):
+                            p_str = f"  [{parent['level1']}"
+                            if parent.get("level2"):
+                                p_str += f" > {parent['level2']}"
+                            p_str += "]"
+                        line = (f"    #{item['rank']} {item['board_name']:<14} "
+                                f"{item['change_pct']:+.2f}%"
+                                f"{p_str}")
+                        self._info(line)
+                        tree_rows.append((
+                            f"  {period}涨幅#{item['rank']} {item['board_name']}",
+                            f"{item['change_pct']:+.2f}%",
+                            p_str
+                        ))
+                else:
+                    self._info(f"  📈 涨幅 TOP5: （需连接东方财富数据源）")
+
+                if down_list:
+                    self._info(f"  📉 跌幅 TOP5:")
+                    for item in down_list:
+                        parent = item.get("parent_industry", {})
+                        p_str = ""
+                        if parent.get("level1"):
+                            p_str = f"  [{parent['level1']}"
+                            if parent.get("level2"):
+                                p_str += f" > {parent['level2']}"
+                            p_str += "]"
+                        line = (f"    #{item['rank']} {item['board_name']:<14} "
+                                f"{item['change_pct']:+.2f}%"
+                                f"{p_str}")
+                        self._info(line)
+                        tree_rows.append((
+                            f"  {period}跌幅#{item['rank']} {item['board_name']}",
+                            f"{item['change_pct']:+.2f}%",
+                            p_str
+                        ))
+                else:
+                    self._info(f"  📉 跌幅 TOP5: （需连接东方财富数据源）")
+
+            self._update_tree(tree_rows)
+
+            self._info(f"\n{'='*55}\n")
+            self._set_status("行业复盘完成", True)
+            self._select_tab(0)
+
+        except Exception as e:
+            self._info(f"❌ 行业复盘异常: {e}")
+            traceback.print_exc()
+            self._set_status("行业复盘失败", False)

@@ -43,6 +43,7 @@ TECH_INDUSTRY_KEYWORDS = [
     "新能源汽车", "车联网", "数字经济", "数字", "数据", "算力",
     "消费电子", "光学", "光电子", "传感器", "无人", "卫星",
     "航天", "航空", "军工电子", "量子",
+    "信息", "光纤", "光缆", "光通信", "光模块",
 ]
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
