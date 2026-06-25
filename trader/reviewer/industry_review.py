@@ -11,7 +11,7 @@
 =============
 功能：
   1. 市值排名 TOP5 - A 股市值占比、自身市值
-  2. 热度排名 - 昨日/近三月/近一年涨跌幅排名（涨幅 TOP5 + 跌幅 TOP5）
+  2. 热度排名 - 昨日/近一月/近一年涨跌幅排名（涨幅 TOP5 + 跌幅 TOP5）
   3. 上级行业标识（二级/一级）
 """
 
@@ -54,7 +54,7 @@ class IndustryReviewer:
     # 区间映射（用于获取历史行情）
     PERIOD_DAYS = {
         "昨日": 1,
-        "近三月": 60,
+        "近一月": 20,
         "近一年": 245,
     }
 
@@ -366,11 +366,11 @@ class IndustryReviewer:
     # ════════════════════════════════════════
     # 5. 核心：区间涨跌幅排名
     # ════════════════════════════════════════
-    def get_period_change_top5(self, period: str = "近三月",
+    def get_period_change_top5(self, period: str = "近一月",
                                 df_spot: Optional[pd.DataFrame] = None) -> Dict[str, List[Dict]]:
         """
         获取指定区间的涨跌幅排名
-        period: "昨日" / "近三月" / "近一年"
+        period: "昨日" / "近一月" / "近一年"
         df_spot: 可选，外部传入的行业实时行情（避免重复调用）
         """
         days = self.PERIOD_DAYS.get(period, 60)
@@ -444,7 +444,7 @@ class IndustryReviewer:
             "市值排名TOP5": [...],
             "热度排名": {
                 "昨日": {"涨幅TOP5": [...], "跌幅TOP5": [...]},
-                "近三月": {...},
+                "近一月": {...},
                 "近一年": {...},
             },
             "行业总数": 86,
@@ -491,7 +491,7 @@ class IndustryReviewer:
                 })
 
         # 热度排名（三段时间）
-        for period in ["昨日", "近三月", "近一年"]:
+        for period in ["昨日", "近一月", "近一年"]:
             result["热度排名"][period] = self.get_period_change_top5(
                 period, df_spot=df_spot
             )
@@ -531,7 +531,7 @@ class IndustryReviewer:
             )
 
         # ── 热度排名 ──
-        for period in ["昨日", "近三月", "近一年"]:
+        for period in ["昨日", "近一月", "近一年"]:
             period_data = result.get("热度排名", {}).get(period, {})
             if not period_data:
                 continue

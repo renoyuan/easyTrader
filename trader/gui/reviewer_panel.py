@@ -280,8 +280,8 @@ class ReviewerPanel:
                 self._info("  ⚠️ 实时行情不可用（需连接东方财富数据源）")
                 tree_rows.append(("  市值排名", "⚠️", "实时行情不可用"))
 
-            # ── 热度排名 ──
-            for period in ["昨日", "近三月", "近一年"]:
+                        # ── 热度排名 ──
+            for period in ["昨日", "近一月", "近一年"]:
                 period_data = result.get("热度排名", {}).get(period, {})
                 if not period_data:
                     continue

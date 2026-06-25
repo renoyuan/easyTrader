@@ -141,7 +141,7 @@ class Stock:
 
                 # 只插入本地没有的日期（增量）
                 if not db_df.empty:
-                    db_dates = set(pd.to_datetime(db_df['date']).date)
+                    db_dates = set(pd.to_datetime(db_df['date']).dt.date)
                     insert_rows = df[~df['date'].dt.date.isin(db_dates)]
                 else:
                     insert_rows = df
