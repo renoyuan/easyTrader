@@ -45,12 +45,41 @@ class ReviewerPanel:
         self._info(f"{'='*50}")
         print(f"\n📊 市场复盘 ...")
 
-        # 1. 市场情绪指标
-        self._info("\n🔹 市场情绪指标")
+        # 1. 指数表现（主板上证、深证成指、创业板、科创板）
+        self._info("\n🔹 四大指数表现")
         try:
-            indices = self.market.get_index_summary()
+            indices = self.market.get_index_performance()
             if indices:
                 for name, data in indices.items():
+                    today = data.get("today", 0)
+                    week = data.get("week_1", 0)
+                    month3 = data.get("month_3", 0)
+                    vol_today = data.get("volume_today", 0)
+                    vol_avg = data.get("volume_avg_3m", 0)
+                    icon_t = "📈" if today > 0 else "📉" if today < 0 else "➖"
+                    icon_w = "📈" if week > 0 else "📉" if week < 0 else "➖"
+                    icon_m = "📈" if month3 > 0 else "📉" if month3 < 0 else "➖"
+                    vol_diff = vol_today - vol_avg
+                    vol_icon = "🔼" if vol_diff > 0 else "🔽" if vol_diff < 0 else "➖"
+                    self._info(
+                        f"  {name:<10} "
+                        f"{icon_t}今日 {today:+.2f}%  "
+                        f"{icon_w}近周 {week:+.2f}%  "
+                        f"{icon_m}近3月 {month3:+.2f}%  "
+                        f"成交{vol_icon} {vol_today:.0f}亿(均{vol_avg:.0f}亿)"
+                    )
+            else:
+                self._info("  ⚠️ 未获取到指数行情")
+        except Exception as e:
+            self._info(f"  ❌ 获取指数行情失败: {e}")
+            traceback.print_exc()
+
+                # 2. 市场情绪指标（补充）
+        try:
+            sentiment = self.market.get_market_sentiment()
+            if sentiment:
+                self._info("\n🔹 市场情绪指标")
+                for name, data in sentiment.items():
                     if "count" in data:
                         extra = ""
                         if "avg_pct" in data and data["avg_pct"]:
@@ -60,27 +89,11 @@ class ReviewerPanel:
                         self._info(f"  📊 {name}: {data['count']}只{extra}")
                     else:
                         self._info(f"  📊 {name}: {data}")
-            else:
-                self._info("  ⚠️ 未获取到情绪指标")
-        except Exception as e:
-            self._info(f"  ❌ 获取指数失败: {e}")
-            traceback.print_exc()
+        except Exception:
+            pass
 
-        # 2. 周度统计
-        self._info("\n🔹 近5日市场统计")
-        try:
-            weekly = self.market.get_weekly_summary()
-            stats = weekly.get("个股统计", {})
-            if stats:
-                self._info(f"  ✅ 上涨: {stats.get('上涨家数', 'N/A')} 家")
-                self._info(f"  ❌ 下跌: {stats.get('下跌家数', 'N/A')} 家")
-                self._info(f"  🚀 涨停: {stats.get('涨停', 'N/A')} 家")
-                self._info(f"  💥 跌停: {stats.get('跌停', 'N/A')} 家")
-        except Exception as e:
-            self._info(f"  ❌ 获取周度统计失败: {e}")
-
-        # 3. 涨跌 Top10
-        self._info("\n🔹 涨跌幅 Top 10")
+                # 3. 涨跌 Top3 + 近一周/近三月（各板块涨跌各3只）
+        self._info("\n🔹 个股涨跌 TOP3（近一周/近三月）")
         try:
             tops = self.market.get_top_stocks()
             for group in ("主板", "科创创业"):
@@ -89,23 +102,37 @@ class ReviewerPanel:
                 up_list = data.get("涨幅榜", [])
                 down_list = data.get("跌幅榜", [])
                 if up_list:
-                    self._info("  📈 涨幅前10:")
-                    for i, s in enumerate(up_list, 1):
+                    self._info("  📈 涨幅前3:")
+                    for i, s in enumerate(up_list[:3], 1):
                         name = s.get('name', '')
                         code = s.get('code', '')
                         pct = s.get('pct_chg', 0)
+                        w1 = s.get('week_1', '')
+                        m3 = s.get('month_3', '')
                         price = s.get('price', 0)
-                        self._info(f"    {i:>2}. {name}({code})  {pct:+.2f}%"
-                                   + (f"  ¥{s.get('price', '')}" if s.get('price') else ""))
+                        extra = ""
+                        if w1 != '' and w1 is not None:
+                            extra += f"  近周 {w1:+.2f}%"
+                        if m3 != '' and m3 is not None:
+                            extra += f"  近3月 {m3:+.2f}%"
+                        self._info(f"    {i:>2}. {name}({code})  {pct:+.2f}%{extra}"
+                                   + (f"  ¥{price}" if price else ""))
                 if down_list:
-                    self._info("  📉 跌幅前10:")
-                    for i, s in enumerate(down_list, 1):
+                    self._info("  📉 跌幅前3:")
+                    for i, s in enumerate(down_list[:3], 1):
                         name = s.get('name', '')
                         code = s.get('code', '')
                         pct = s.get('pct_chg', 0)
+                        w1 = s.get('week_1', '')
+                        m3 = s.get('month_3', '')
                         price = s.get('price', 0)
-                        self._info(f"    {i:>2}. {name}({code})  {pct:+.2f}%"
-                                   + (f"  ¥{s.get('price', '')}" if s.get('price') else ""))
+                        extra = ""
+                        if w1 != '' and w1 is not None:
+                            extra += f"  近周 {w1:+.2f}%"
+                        if m3 != '' and m3 is not None:
+                            extra += f"  近3月 {m3:+.2f}%"
+                        self._info(f"    {i:>2}. {name}({code})  {pct:+.2f}%{extra}"
+                                   + (f"  ¥{price}" if price else ""))
         except Exception as e:
             self._info(f"  ❌ 获取涨跌榜失败: {e}")
 
@@ -113,11 +140,10 @@ class ReviewerPanel:
         tree_rows = []
         if indices:
             for name, data in indices.items():
-                if "count" in data:
-                    tree_rows.append((f"📊 {name}", str(data['count']), ""))
-        if stats:
-            for k, v in stats.items():
-                tree_rows.append((f"  {k}", str(v), ""))
+                today = data.get("today", 0)
+                week = data.get("week_1", 0)
+                month3 = data.get("month_3", 0)
+                tree_rows.append((f"📊 {name}", f"今日{today:+.2f}%", f"近周{week:+.2f}% 近3月{month3:+.2f}%"))
         self._update_tree(tree_rows)
 
         self._info(f"\n{'='*50}\n")

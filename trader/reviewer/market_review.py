@@ -29,80 +29,84 @@ class MarketReviewer:
             return "主板" if code.startswith("00") else "创业板"
         return "其他"
 
-    def get_index_summary(self) -> dict:
+    def get_index_performance(self) -> dict:
         """
-        使用 stock_rank_lxsz_ths（连续上涨）+ stock_rank_lxxd_ths（连续下跌）
-        数据来推断市场热度。不直接获取指数涨跌（同花顺接口无指数实时数据）。
+        获取主要指数今日/近一周/近三月涨跌幅及今日成交量 vs 近3月均成交量。
+        使用新浪日线接口（ak.stock_zh_index_daily），比东方财富实时行情更稳定。
+
+        返回:
+            {
+                "上证指数": {
+                    "today": +0.35,       # 今日涨跌幅%
+                    "week_1": +1.02,      # 近一周涨跌幅%
+                    "month_3": -2.15,     # 近3月涨跌幅%
+                    "volume_today": 3500, # 今日成交量(亿)
+                    "volume_avg_3m": 3800,# 近3月日均成交量(亿)
+                },
+                ...
+            }
         """
+        # 新浪指数代码
+        index_codes = {
+            "上证指数": "sh000001",
+            "深证成指": "sz399001",
+            "创业板指": "sz399006",
+            "科创50": "sh000688",
+        }
         result = {}
-        try:
-            # 用连续上涨+下跌的数据来反映市场情绪
-            up_df = ak.stock_rank_lxsz_ths()
-            down_df = ak.stock_rank_lxxd_ths()
-            if up_df is not None and not up_df.empty:
-                result["连续上涨股票"] = {
-                    "count": len(up_df),
-                    "avg_pct": float(up_df['连续涨跌幅'].mean()) if '连续涨跌幅' in up_df.columns else None,
-                    "max_days": int(up_df['连涨天数'].max()) if '连涨天数' in up_df.columns else None,
-                }
-            if down_df is not None and not down_df.empty:
-                result["连续下跌股票"] = {
-                    "count": len(down_df),
-                    "avg_pct": float(down_df['连续涨跌幅'].mean()) if '连续涨跌幅' in down_df.columns else None,
-                    "max_days": int(down_df['连涨天数'].max()) if '连涨天数' in down_df.columns else None,
-                }
-        except Exception as e:
-            print(f"⚠️ 获取连续涨跌数据失败: {e}")
-
-        # 用量价齐升/齐跌数据
-        try:
-            ljqs_df = ak.stock_rank_ljqs_ths()
-            ljqd_df = ak.stock_rank_ljqd_ths()
-            if ljqs_df is not None and not ljqs_df.empty:
-                result["量价齐升"] = {"count": len(ljqs_df)}
-            if ljqd_df is not None and not ljqd_df.empty:
-                result["量价齐跌"] = {"count": len(ljqd_df)}
-        except Exception as e:
-            print(f"⚠️ 获取量价数据失败: {e}")
-
-        # 用创新高/新低数据（带兼容处理）
-        try:
-            for symbol_name in ["创月新高", "半年新高", "一年新高", "历史新高"]:
-                try:
-                    df = ak.stock_rank_cxg_ths(symbol=symbol_name)
-                    if df is not None and not df.empty:
-                        result[symbol_name] = {"count": len(df)}
-                except Exception:
+        for name, symbol in index_codes.items():
+            try:
+                df = ak.stock_zh_index_daily(symbol=symbol)
+                if df is None or df.empty or len(df) < 2:
                     continue
-        except Exception:
-            pass
 
-        try:
-            for symbol_name in ["创月新低", "半年新低", "一年新低", "历史新低"]:
-                try:
-                    df = ak.stock_rank_cxd_ths(symbol=symbol_name)
-                    if df is not None and not df.empty:
-                        result[symbol_name] = {"count": len(df)}
-                except Exception:
-                    continue
-        except Exception:
-            pass
+                df = df.sort_values("date").reset_index(drop=True)
+                closes = df["close"]
+                volumes = df["volume"]
 
-        # 向上/向下突破均线
-        try:
-            df = ak.stock_rank_xstp_ths(symbol="20日均线")
-            if df is not None and not df.empty:
-                up_count = len(df[df['涨跌幅'] > 0]) if '涨跌幅' in df.columns else len(df)
-                down_count = len(df[df['涨跌幅'] < 0]) if '涨跌幅' in df.columns else 0
-                result["向上突破20日均线"] = {"count": up_count, "total": len(df)}
-        except Exception as e:
-            print(f"⚠️ 获取向上突破数据失败: {e}")
+                # 今日涨跌幅 = (最新收盘 - 昨日收盘) / 昨日收盘
+                today_pct = (closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2] * 100
+                # 今日成交量
+                volume_today = float(volumes.iloc[-1])
+
+                # 近一周（5个交易日）
+                week_pct = 0.0
+                if len(closes) >= 6:
+                    week_pct = (closes.iloc[-1] - closes.iloc[-6]) / closes.iloc[-6] * 100
+
+                # 近三月（约60个交易日）
+                month3_pct = 0.0
+                if len(closes) >= 61:
+                    month3_pct = (closes.iloc[-1] - closes.iloc[-61]) / closes.iloc[-61] * 100
+
+                # 近3月日均成交量
+                vol_avg_3m = 0.0
+                if len(volumes) >= 60:
+                    vol_avg_3m = float(volumes.iloc[-60:].mean())
+
+                result[name] = {
+                    "today": round(today_pct, 2),
+                    "week_1": round(week_pct, 2),
+                    "month_3": round(month3_pct, 2),
+                    "volume_today": round(volume_today / 1e8, 2) if volume_today > 1e6 else round(volume_today, 2),
+                    "volume_avg_3m": round(vol_avg_3m / 1e8, 2) if vol_avg_3m > 1e6 else round(vol_avg_3m, 2),
+                }
+            except Exception as e:
+                print(f"⚠️ 获取 {name} 行情失败: {e}")
+                continue
 
         return result
 
-    def get_top_stocks(self, top_n: int = 10) -> dict:
+    # ── 原 get_index_summary 保留为情绪指标补充 ──
+    def get_market_sentiment(self) -> dict:
         """
-        获取涨幅榜/跌幅榜 Top10（使用同花顺接口）
+        获取市场情绪指标（连续涨跌、量价、创新高等）
+        作为指数表现的补充。
+        """
+
+    def get_top_stocks(self, top_n: int = 5) -> dict:
+        """
+        获取涨幅榜/跌幅榜 Top5（使用同花顺接口）
         用向上突破20日均线榜单来获取热门股
         """
         result = {
@@ -128,11 +132,26 @@ class MarketReviewer:
                     for label, src in [("涨幅榜", up), ("跌幅榜", down)]:
                         items = []
                         for _, row in src.iterrows():
+                            stock_code = row.get(code_col, '')
                             item = {
-                                'code': row.get(code_col, ''),
+                                'code': stock_code,
                                 'name': row.get('股票简称', ''),
                                 'pct_chg': float(row.get(pct_col, 0)),
                             }
+                            # 补上近一周和近三月涨跌幅（通过新浪日线）
+                            try:
+                                daily = ak.stock_zh_a_daily(symbol=stock_code, start_date="", end_date="", adjust="qfq")
+                                if daily is not None and not daily.empty:
+                                    daily = daily.sort_values("date").reset_index(drop=True)
+                                    closes = daily["close"]
+                                    if len(closes) >= 6:
+                                        w1 = (closes.iloc[-1] - closes.iloc[-6]) / closes.iloc[-6] * 100
+                                        item['week_1'] = round(w1, 2)
+                                    if len(closes) >= 61:
+                                        m3 = (closes.iloc[-1] - closes.iloc[-61]) / closes.iloc[-61] * 100
+                                        item['month_3'] = round(m3, 2)
+                            except Exception:
+                                pass
                             # 同花顺突破均线接口有最新价
                             if show_price:
                                 price = row.get('最新价', None)
