@@ -78,7 +78,7 @@ class StatementDownload:
                 q = q.filter(Performance.year.in_(years))
             rows = q.order_by(Performance.year.asc(), Performance.report_date.asc()).all()
         if not rows:
-            self._auto_download_years(years)
+            self._auto_download_stock(code, years)
             with SessionLocal() as session:
                 q = session.query(Performance).filter(Performance.code == code)
                 if years:
@@ -93,7 +93,7 @@ class StatementDownload:
                 q = q.filter(Dividend.year.in_(years))
             rows = q.order_by(Dividend.year.asc(), Dividend.report_date.asc()).all()
         if not rows:
-            self._auto_download_years(years)
+            self._auto_download_stock(code, years)
             with SessionLocal() as session:
                 q = session.query(Dividend).filter(Dividend.code == code)
                 if years:
@@ -112,7 +112,7 @@ class StatementDownload:
                 q = q.filter(Income.year.in_(years))
             rows = q.order_by(Income.year.asc(), Income.report_date.asc()).all()
         if not rows:
-            self._auto_download_years(years)
+            self._auto_download_stock(code, years)
             with SessionLocal() as session:
                 q = session.query(Income).filter(Income.code == code)
                 if years:
@@ -127,7 +127,7 @@ class StatementDownload:
                 q = q.filter(Balance.year.in_(years))
             rows = q.order_by(Balance.year.asc(), Balance.report_date.asc()).all()
         if not rows:
-            self._auto_download_years(years)
+            self._auto_download_stock(code, years)
             with SessionLocal() as session:
                 q = session.query(Balance).filter(Balance.code == code)
                 if years:
@@ -142,7 +142,7 @@ class StatementDownload:
                 q = q.filter(Cashflow.year.in_(years))
             rows = q.order_by(Cashflow.year.asc(), Cashflow.report_date.asc()).all()
         if not rows:
-            self._auto_download_years(years)
+            self._auto_download_stock(code, years)
             with SessionLocal() as session:
                 q = session.query(Cashflow).filter(Cashflow.code == code)
                 if years:
@@ -242,10 +242,39 @@ class StatementDownload:
 
     def download_performance(self, year: int):
         date = f"{year}1231"
-        try:
-            df = ak.stock_yjbb_em(date=date)
-        except:
+        print(f"downloading 业绩报表 {year}...")
+        # 超时保护：akshare 底层 httpx 可能永久阻塞
+        import threading
+        result = [None]
+        error = [None]
+        done = [False]
+
+        def _fetch():
+            try:
+                result[0] = ak.stock_yjbb_em(date=date)
+            except Exception as e:
+                error[0] = e
+                import traceback
+                traceback.print_exc()
+            finally:
+                done[0] = True
+
+        t = threading.Thread(target=_fetch, daemon=True)
+        t.start()
+        t.join(timeout=120)
+
+        if not done[0]:
+            print(f"⚠️ 业绩报表 {year} 请求超时（>120s），跳过")
             return
+        if error[0]:
+            print(f"⚠️ 业绩报表 {year} 异常: {error[0]}")
+            return
+
+        df = result[0]
+        if df is None or df.empty:
+            print(f"⚠️ 业绩报表 {year} 数据为空，跳过")
+            return
+
         count = 0
         for _, row in df.iterrows():
             code = row.get("股票代码") or row.get("代码")
@@ -259,7 +288,8 @@ class StatementDownload:
                     session.merge(Performance(**kwargs))
                     session.commit()
                 count += 1
-            except Exception:
+            except Exception as e:
+                print(f"    ⚠️ 业绩报表写入异常 {code}: {e}")
                 continue
         print(f"OK 业绩报表 {year}: {count}")
 
@@ -372,16 +402,144 @@ class StatementDownload:
             print(f"  [fin_indicator] {code} error: {e}")
             return 0
 
+        # ═══════════════════════════════════════
+    #  按需下载（单只股票，快速）
     # ═══════════════════════════════════════
-    #  自动下载（查询数据为空时触发）
+
+    _downloaded_stocks = set()  # 类级别缓存，避免重复下载同一只股票
+
+    def _auto_download_stock(self, code: str, years):
+        """查询单只股票数据为空时，按需下载该股票的财报数据。
+        使用类级别缓存，每次程序运行只下载一次。
+        """
+        cache_key = code
+        if cache_key in self._downloaded_stocks:
+            return
+        self._downloaded_stocks.add(cache_key)
+
+        if years is None:
+            current_year = datetime.now().year
+            years = list(range(current_year - 5, current_year + 1))
+
+        print(f"\n📥 正在下载 {code} 的财务数据（{min(years)}~{max(years)}）...")
+        self.download_stock_financials(code, years)
+        print(f"✅ {code} 财务数据下载完成")
+
+    def download_stock_financials(self, code: str, years: list = None):
+        """单只股票财报下载（按股票代码，快——每个接口只返回一只股票）"""
+        if years is None:
+            current_year = datetime.now().year
+            years = list(range(current_year - 4, current_year + 1))
+
+        # 财务指标分析（ROE/毛利率/增长率等）——已实现按股票下载
+        self.download_financial_indicator(code, years)
+
+        # 利润表 — 按年全量，但只提取目标股票
+        for year in years:
+            self._download_single_stock_income(code, year)
+
+        # 资产负债表 — 同上
+        for year in years:
+            self._download_single_stock_balance(code, year)
+
+        # 现金流量表 — 同上
+        for year in years:
+            self._download_single_stock_cashflow(code, year)
+
+    def _download_single_stock_income(self, code: str, year: int):
+        """下载单只股票利润表并入库"""
+        date = f"{year}1231"
+        try:
+            df = ak.stock_lrb_em(date=date)
+        except Exception as e:
+            print(f"  ⚠️ {code} 利润表 {year} 下载失败: {e}")
+            return
+        if df is None or df.empty:
+            print(f"  ℹ️ {code} 利润表 {year} 无数据（年报未出）")
+            return
+        row = df[df["股票代码"].astype(str).str.strip() == code]
+        if row.empty:
+            return
+        row = row.iloc[0]
+        kwargs = {
+            "code": code, "name": row.get("股票简称", ""),
+            "report_date": date, "year": year,
+        }
+        for cn_col, orm_attr in INCOME_MAP.items():
+            kwargs[orm_attr] = self._to_float(row.get(cn_col))
+        try:
+            with SessionLocal() as session:
+                session.merge(Income(**kwargs))
+                session.commit()
+        except Exception as e:
+            print(f"  ⚠️ {code} 利润表 {year} 写入失败: {e}")
+
+    def _download_single_stock_balance(self, code: str, year: int):
+        """下载单只股票资产负债表并入库"""
+        date = f"{year}1231"
+        try:
+            df = ak.stock_zcfz_em(date=date)
+        except Exception as e:
+            print(f"  ⚠️ {code} 资产负债表 {year} 下载失败: {e}")
+            return
+        if df is None or df.empty:
+            print(f"  ℹ️ {code} 资产负债表 {year} 无数据（年报未出）")
+            return
+        mask = df["股票代码"].astype(str).str.strip() == code
+        row = df[mask]
+        if row.empty:
+            return
+        row = row.iloc[0]
+        data = {
+            "code": code, "name": row.get("股票简称", ""),
+            "report_date": date, "year": year,
+        }
+        for cn_field, attr in BALANCE_MAP.items():
+            data[attr] = self._to_float(row.get(cn_field))
+        try:
+            with SessionLocal() as session:
+                session.merge(Balance(**data))
+                session.commit()
+        except Exception as e:
+            print(f"  ⚠️ {code} 资产负债表 {year} 写入失败: {e}")
+
+    def _download_single_stock_cashflow(self, code: str, year: int):
+        """下载单只股票现金流量表并入库"""
+        date = f"{year}1231"
+        try:
+            df = ak.stock_xjll_em(date=date)
+        except Exception as e:
+            print(f"  ⚠️ {code} 现金流量表 {year} 下载失败: {e}")
+            return
+        if df is None or df.empty:
+            print(f"  ℹ️ {code} 现金流量表 {year} 无数据（年报未出）")
+            return
+        mask = df["股票代码"].astype(str).str.strip() == code
+        row = df[mask]
+        if row.empty:
+            return
+        row = row.iloc[0]
+        data = {
+            "code": code, "name": row.get("股票简称", ""),
+            "report_date": date, "year": year,
+        }
+        for cn_field, attr in CASHFLOW_MAP.items():
+            data[attr] = self._to_float(row.get(cn_field))
+        try:
+            with SessionLocal() as session:
+                session.merge(Cashflow(**data))
+                session.commit()
+        except Exception as e:
+            print(f"  ⚠️ {code} 现金流量表 {year} 写入失败: {e}")
+
+    # ═══════════════════════════════════════
+    #  全量下载（市场扫描时使用，保留原逻辑）
     # ═══════════════════════════════════════
 
     _auto_downloaded_years = set()  # 类级别缓存，避免重复下载
 
     def _auto_download_years(self, years):
-        """查询数据为空时自动下载指定年份的财务数据。
-        使用类级别缓存，每次程序运行只下载一次。
-        """
+        """全市场全量下载财务数据（市场扫描时使用）"""
         if years is None:
             current_year = datetime.now().year
             years = list(range(current_year - 5, current_year + 1))

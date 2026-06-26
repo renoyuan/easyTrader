@@ -70,22 +70,30 @@ def get_stock_list_by_market(markets: List[str]) -> List[Dict[str, str]]:
         return []
     
     is_all = "ALL" in markets
-    
+
+    # ── 自动初始化 StockBasic（如果为空） ──
+    _init_stock_basic_if_empty()
+
     try:
         with SessionLocal() as session:
             query = session.query(StockBasic).filter(StockBasic.list_status == "L")
             rows = query.all()
-        
+
+        if not rows:
+            print("[market_scanner] StockBasic 表仍为空，尝试初始化...")
+            _init_stock_basic()
+            with SessionLocal() as session:
+                query = session.query(StockBasic).filter(StockBasic.list_status == "L")
+                rows = query.all()
+
         result = []
         for row in rows:
             code = row.code.strip()
             name = row.name.strip() if row.name else ""
             
             if is_all:
-                # 全市场 - 不过滤
                 pass
             else:
-                # 检查股票代码是否匹配任一选中的市场
                 matched = False
                 for m in markets:
                     if m == "SH":
@@ -116,7 +124,45 @@ def get_stock_list_by_market(markets: List[str]) -> List[Dict[str, str]]:
         return result
     except Exception as e:
         print(f"[market_scanner] 获取股票列表失败: {e}")
+        import traceback
+        traceback.print_exc()
         return []
+
+
+_stock_basic_initialized = False
+
+def _init_stock_basic_if_empty():
+    """检查 StockBasic 是否为空，为空则自动初始化"""
+    global _stock_basic_initialized
+    if _stock_basic_initialized:
+        return
+    try:
+        with SessionLocal() as session:
+            cnt = session.query(StockBasic).count()
+        if cnt > 0:
+            _stock_basic_initialized = True
+            return
+    except Exception:
+        pass
+    _init_stock_basic()
+
+
+def _init_stock_basic():
+    """初始化股票基础信息表"""
+    global _stock_basic_initialized
+    print("\n📥 StockBasic 表为空，正在自动下载股票基础信息...")
+    try:
+        from trader.data.stock import Stock
+        s = Stock()
+        stock_list = s.get_all_stocks()
+        s.save_stock_basic(stock_list)
+        s.close()
+        _stock_basic_initialized = True
+        print("✅ 股票基础信息下载完成")
+    except Exception as e:
+        print(f"❌ 股票基础信息下载失败: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def get_stock_names_by_codes(codes: List[str]) -> Dict[str, str]:
@@ -186,9 +232,26 @@ class MarketScanner:
         
         total = len(stock_list)
         if log_callback:
-            log_callback(f"📊 {market_label} 共 {total} 只股票，开始扫描...")
-        
-        # 2. 初始化评分器
+            log_callback(f"📊 {market_label} 共 {total} 只股票")
+
+        # 2. 预下载全量财报（避免扫描时每只股票单独触发按需下载）
+        if log_callback:
+            log_callback(f"📥 正在预下载全市场财报数据，确保评分数据就绪...")
+        try:
+            from trader.data.statement import StatementDownload
+            sd = StatementDownload()
+            from datetime import datetime
+            current_year = datetime.now().year
+            years = list(range(current_year - 4, current_year + 1))
+            sd._auto_download_years(years)
+        except Exception as e:
+            if log_callback:
+                log_callback(f"  ⚠️ 财报预下载异常（评分仍将继续）: {e}")
+
+        if log_callback:
+            log_callback(f"🚀 开始扫描评分...")
+
+        # 3. 初始化评分器
         scorer_cls = SCORER_MAP.get(scorer_name)
         if not scorer_cls:
             if log_callback:
@@ -197,7 +260,7 @@ class MarketScanner:
         
         scorer = scorer_cls()
         
-        # 3. 批量评分
+        # 4. 批量评分
         all_results = []
         fail_count = 0
         skip_count = 0
@@ -237,7 +300,7 @@ class MarketScanner:
             # 避免请求过快
             time.sleep(0.1)
         
-        # 4. 排序取前 N
+        # 5. 排序取前 N
         all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
         top_results = all_results[:top_n]
         

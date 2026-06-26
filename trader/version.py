@@ -11,7 +11,7 @@ easyTrader 版本信息
 集中管理版本号，所有地方从此读取
 """
 
-VERSION = "2026.06.17"
+VERSION = "2026.06.26"
 VERSION_TAG = f"v{VERSION}"
 VERSION_DESC = f"v {VERSION}"
 

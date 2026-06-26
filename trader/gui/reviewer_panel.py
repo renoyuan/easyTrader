@@ -43,6 +43,7 @@ class ReviewerPanel:
         self._info(f"\n{'='*50}")
         self._info("📊  市场复盘")
         self._info(f"{'='*50}")
+        self._info("🔄 正在获取市场数据，请稍候...")
         print(f"\n📊 市场复盘 ...")
 
         # 1. 指数表现（主板上证、深证成指、创业板、科创板）
@@ -163,6 +164,7 @@ class ReviewerPanel:
         self._info(f"\n{'='*50}")
         self._info(f"📊  个股复盘")
         self._info(f"{'='*50}")
+        self._info(f"🔄 正在获取 {symbol} 数据，请稍候...")
         print(f"\n📊 个股复盘 {symbol} ...")
 
         try:
@@ -257,6 +259,7 @@ class ReviewerPanel:
         self._info(f"\n{'='*55}")
         self._info("📊  行业复盘")
         self._info(f"{'='*55}")
+        self._info("🔄 正在获取行业数据，请稍候...")
         print(f"\n📊 行业复盘 ...")
 
         try:

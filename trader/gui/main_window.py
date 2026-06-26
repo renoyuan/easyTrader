@@ -234,6 +234,30 @@ class EasyTraderGUI:
             padx=4, pady=5,
         ).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(4, 0))
 
+        # ═══════════ 量化回测 ═══════════
+        tk.Label(
+            btn_frame, text="══════ 量化回测 ══════",
+            bg=COLOR_CARD_BG, fg=COLOR_TEXT_SECONDARY,
+            font=("微软雅黑", 9, "bold")
+        ).pack(fill=tk.X, pady=(10, 2))
+
+        self._create_styled_button(
+            btn_frame, "🚀  执行回测",
+            self.input_backtest_code, "#e84393"
+        ).pack(fill=tk.X, pady=4)
+
+        # ═══════════ 估值分析 ═══════════
+        tk.Label(
+            btn_frame, text="══════ 估值分析 ══════",
+            bg=COLOR_CARD_BG, fg=COLOR_TEXT_SECONDARY,
+            font=("微软雅黑", 9, "bold")
+        ).pack(fill=tk.X, pady=(10, 2))
+
+        self._create_styled_button(
+            btn_frame, "📊  估值分析",
+            self.open_valuation, "#26a69a"
+        ).pack(fill=tk.X, pady=4)
+
         # ═══════════ 股神复盘 ═══════════
         tk.Label(
             btn_frame, text="══════ 股神复盘 ══════",
@@ -254,23 +278,6 @@ class EasyTraderGUI:
         self._create_styled_button(
             btn_frame, "🏭  行业复盘",
             self.reviewer.run_industry_review, "#00acc1"
-        ).pack(fill=tk.X, pady=4)
-
-        # ═══════════ 量化回测 ═══════════
-        tk.Label(
-            btn_frame, text="══════ 量化回测 ══════",
-            bg=COLOR_CARD_BG, fg=COLOR_TEXT_SECONDARY,
-            font=("微软雅黑", 9, "bold")
-        ).pack(fill=tk.X, pady=(10, 2))
-
-        self._create_styled_button(
-            btn_frame, "🚀  执行回测",
-            self.input_backtest_code, "#e84393"
-        ).pack(fill=tk.X, pady=4)
-
-        self._create_styled_button(
-            btn_frame, "📋  当前标的回测",
-            self.run_backtest_current, "#6c5ce7"
         ).pack(fill=tk.X, pady=4)
 
         # ═══════════ 分隔 + 工具 ═══════════
@@ -404,10 +411,12 @@ class EasyTraderGUI:
     def _set_status(self, msg: str, is_ok: bool = True) -> None:
         icon = "✅" if is_ok else "⚠️"
         self.status_var.set(f"{icon} {msg}")
+        self.root.update_idletasks()
 
     def _info(self, msg: str) -> None:
         self.text.insert(tk.END, msg + "\n")
         self.text.see(tk.END)
+        self.root.update_idletasks()
 
     def _update_tree(self, rows: list[tuple]) -> None:
         for item in self.tree.get_children():
@@ -458,37 +467,66 @@ class EasyTraderGUI:
             messagebox.showerror("输入错误", "请输入 6 位数字股票代码！")
 
     # ==========================================
-        #  量化回测
-        # ==========================================
+    #  量化回测
+    # ==========================================
     def input_backtest_code(self) -> None:
-        """弹窗输入股票代码，切换到回测标签页并填写代码"""
-        code = simpledialog.askstring(
-            "量化回测",
-            "请输入要回测的 6 位股票代码：\n例如：600519（贵州茅台）",
-            parent=self.root
-        )
-        if code is None:
-            return
-        code = code.strip()
-        if code.isdigit() and len(code) == 6:
-            # 切换到回测标签页
+        """执行回测：有当前code自动填入回测页面，否则弹窗输入"""
+        code = self.symbol
+        if code and code.isdigit() and len(code) == 6:
+            # 有当前选中股票，直接填入回测页面
             self.notebook.select(4)
             self.backtest.load_data(code)
+            self._info(f"📈 已切换到回测标签页，当前标的: {code}\n请确认参数后点击「开始回测」\n")
+            self._set_status(f"已填入回测: {code}")
         else:
-            messagebox.showerror("输入错误", "请输入 6 位数字股票代码！")
+            # 弹窗输入
+            code = simpledialog.askstring(
+                "量化回测",
+                "请输入要回测的 6 位股票代码：\n例如：600519（贵州茅台）",
+                parent=self.root
+            )
+            if code is None:
+                return
+            code = code.strip()
+            if code.isdigit() and len(code) == 6:
+                self.notebook.select(4)
+                self.backtest.load_data(code)
+                self._info(f"📈 已切换到回测标签页，标的: {code}\n请确认参数后点击「开始回测」\n")
+                self._set_status(f"已填入回测: {code}")
+            else:
+                messagebox.showerror("输入错误", "请输入 6 位数字股票代码！")
 
-    def run_backtest_current(self) -> None:
-        """使用当前选中的股票代码直接执行回测"""
+    # ==========================================
+    #  估值分析
+    # ==========================================
+    def open_valuation(self) -> None:
+        """打开估值分析标签页，有当前code自动填入"""
         code = self.symbol
-        if not code:
-            messagebox.showwarning("提示", "请先点击「输入代码」选择股票！")
-            return
-        # 切换到回测标签页
-        self.notebook.select(4)
-        self.backtest.load_data(code)
-        # 自动启动回测
-        self._info(f"📈 切换到回测标签页，开始回测 {code}...\n")
-        self.backtest.run_backtest()
+        if code and code.isdigit() and len(code) == 6:
+            # 有当前选中股票，自动填入
+            self.valuation_panel.code_var.set(code)
+            self.valuation_panel.symbol = code
+            self.notebook.select(3)
+            self._info(f"📈 已切换到估值分析标签页，当前标的: {code}\n")
+            self._set_status(f"已填入估值: {code}")
+        else:
+            # 弹窗输入
+            code = simpledialog.askstring(
+                "估值分析",
+                "请输入 6 位股票代码：\n例如：600519（贵州茅台）",
+                parent=self.root
+            )
+            if code is None:
+                return
+            code = code.strip()
+            if code.isdigit() and len(code) == 6:
+                self.valuation_panel.code_var.set(code)
+                self.valuation_panel.symbol = code
+                self.notebook.select(3)
+                self._info(f"📈 已切换到估值分析标签页，标的: {code}\n")
+                self._set_status(f"已填入估值: {code}")
+            else:
+                messagebox.showerror("输入错误", "请输入 6 位数字股票代码！")
 
     # ==========================================
     #  清空结果
@@ -594,10 +632,12 @@ class EasyTraderGUI:
 
 HELP_TEXT = """
 ═══════════════════════════════════════════
-                功能说明
+              功能说明
 ═══════════════════════════════════════════
 
-一、股神评分（4 种评分体系）
+系统分为四大模块：股神评分、量化回测、估值分析、股神复盘
+
+一、股神评分（6 种评分体系 + 市场扫描）
 ──────────────────────────
 
 1️⃣  巴菲特价值评分  (buffett)
@@ -629,33 +669,34 @@ HELP_TEXT = """
   · 适合：短线/波段交易，追强势股
 
 4️⃣  Renoyuan 核心评分  (renoyuan)
-· 核心理念：综合财务 + 增长 + 估值 + 股息
-· 评分维度：
-    - 质量（ROE、利润率等）  (0~30分)
-    - 增长（营收/利润增长）  (0~25分)
-    - 估值（PE/PB 打分）  (0~20分)
-    - 稳定性（低负债、现金流）  (0~15分)
-    - 股息率  (0~10分)
-· 适合：综合型选股，兼顾质量与价格
+  · 核心理念：综合财务 + 增长 + 估值 + 股息
+  · 评分维度：
+      - 质量（ROE、利润率等）  (0~30分)
+      - 增长（营收/利润增长）  (0~25分)
+      - 估值（PE/PB 打分）  (0~20分)
+      - 稳定性（低负债、现金流）  (0~15分)
+      - 股息率  (0~10分)
+  · 适合：综合型选股，兼顾质量与价格
 
 5️⃣  方老哥筹码趋势评分  (fanglaoge)
-· 核心理念：中线锁仓（方新侠）+ 首板突破（赵老哥）
-· 评分维度：
-    - 筹码集中度（分时线逐笔数据）  (0~20分)
-    - 获利盘安全度  (0~15分)
-    - 主力资金方向  (0~15分)
-    - 大单活跃度  (0~10分)
-    - 价格动量（日线）  (0~15分)
-    - 成交量健康度  (0~10分)
-    - 突破形态（日线）  (0~10分)
-    - 趋势稳定性  (0~5分)
-· 数据来源：新浪分时线（逐笔成交）+ 东方财富日 K 线
-· 适合：中线重仓 / 首板博弈 / 筹码结构分析
+  · 核心理念：中线锁仓（方新侠）+ 首板突破（赵老哥）
+  · 评分维度：
+      - 筹码集中度（分时线逐笔数据）  (0~20分)
+      - 获利盘安全度  (0~15分)
+      - 主力资金方向  (0~15分)
+      - 大单活跃度  (0~10分)
+      - 价格动量（日线）  (0~15分)
+      - 成交量健康度  (0~10分)
+      - 突破形态（日线）  (0~10分)
+      - 趋势稳定性  (0~5分)
+  · 数据来源：新浪分时线（逐笔成交）+ 东方财富日 K 线
+  · 适合：中线重仓 / 首板博弈 / 筹码结构分析
 
-═══════════════════════════════════════════
+6️⃣  徐彬财务安全评分  (xubin)
+  · 核心理念：资产负债结构 + 现金流覆盖
+  · 适合：财务风控筛选
 
-二、市场扫描
-──────────────────────────
+🔍 市场扫描
   · 支持一键扫描全市场或指定板块
   · 可选板块：上证A股、深证A股、创业板、
     科创板、北交所、全部A股
@@ -664,27 +705,71 @@ HELP_TEXT = """
 
 ═══════════════════════════════════════════
 
-三、股神复盘
+二、量化回测
+──────────────────────────
+  · 基于历史 K 线数据，按指定评分策略模拟交易
+  · 支持各评分体系独立作为选股策略
+  · 回测参数：周期、初始资金、评分阈值、持仓上限
+  · 输出指标：累计收益率、年化收益率、最大回撤、
+    夏普比率、胜率、盈亏比、交易次数
+
+操作流程：
+  左侧面板点击「执行回测」
+  → 有已选中股票则自动填入，无则弹窗输入
+  → 切换到回测标签页
+  → 确认参数后点击「开始回测」
+
+═══════════════════════════════════════════
+
+三、估值分析
+──────────────────────────
+  · PE估值法：行业合理PE × EPS
+  · PB估值法：行业合理PB × BVPS
+  · PS估值法：行业PS × 营收/总股本
+  · PEG估值法：合理PE = 增长率（PEG=1）
+
+输出结果：
+  · 各方法合理股价与置信区间
+  · 当前股价偏离度（%）
+  · 综合判断：低估 / 偏低 / 合理 / 偏高 / 高估
+
+操作流程：
+  左侧面板点击「估值分析」
+  → 有已选中股票则自动填入，无则弹窗输入
+  → 切换到估值标签页
+  → 选择估值方法 → 点击「开始估值」
+
+═══════════════════════════════════════════
+
+四、股神复盘
 ──────────────────────────
 
 📈 市场复盘
-  · 统计全市场 1700+ 股票的走势分布
-  · 按区间（一月 / 三月 / 半年 / 一年）
-    统计上涨/下跌股票数量
+  · 统计四大指数表现（上证/深证/创业板/科创板）
+  · 统计全市场个股涨跌分布
+  · 展示近一周/近三月涨跌幅 TOP3
 
 📋 个股复盘
   · 输入股票代码，自动拉取近一年 K 线数据
   · 输出关键财报数据与估值指标
   · 包括区间涨跌、PE/PB、ROE 等
+  · 支持 DeepSeek AI 智能分析
+
+🏭 行业复盘
+  · 申万行业分类
+  · 展示市值排名 TOP5
+  · 热度排名（昨日/近一月/近一年涨跌幅 TOP5）
 
 ═══════════════════════════════════════════
 
-四、数据来源说明
+五、数据来源说明
 ──────────────────────────
   · 财务数据：东方财富 (akshare)
   · K 线行情：东方财富 (akshare)
   · 估值数据：东方财富 (akshare)，按天缓存
-    · 辅助数据：同花顺 (akshare)
+  · 分时逐笔：新浪财经 (akshare)
+  · 行业数据：申万指数 (akshare)
+  · 辅助数据：同花顺 (akshare)
 
 ═══════════════════════════════════════════
 
