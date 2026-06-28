@@ -156,13 +156,16 @@ class StatementDownload:
             if years:
                 q = q.filter(FinancialIndicator.year.in_(years))
             records = q.order_by(FinancialIndicator.year.asc(), FinancialIndicator.report_date.asc()).all()
-        if not records:
+        if not records and code not in self._failed_fin_indicator:
             self.download_financial_indicator(code, years)
             with SessionLocal() as session:
                 q = session.query(FinancialIndicator).filter(FinancialIndicator.code == code)
                 if years:
                     q = q.filter(FinancialIndicator.year.in_(years))
                 records = q.order_by(FinancialIndicator.year.asc(), FinancialIndicator.report_date.asc()).all()
+            # 如果下载后仍然没数据，标记为失败，避免下次再重试
+            if not records:
+                self._failed_fin_indicator.add(code)
         return self._rows_to_df(records)
 
     # ═══════════════════════════════════════
@@ -170,6 +173,7 @@ class StatementDownload:
     # ═══════════════════════════════════════
 
     def download_income(self, year: int):
+        print(f"downloading 利润表 {year}...")
         date = f"{year}1231"
         try:
             df = ak.stock_lrb_em(date=date)
@@ -354,9 +358,38 @@ class StatementDownload:
                     return 0
                 min_year = min(need_years) - 1
             print(f"  [fin_indicator] downloading {code} ({min_year}~{max_year})...")
-            df = ak.stock_financial_analysis_indicator(symbol=code, start_year=str(min_year))
-            if df.empty:
+
+            # 超时保护：akshare 底层 httpx 可能永久阻塞
+            import threading
+            result = [None]
+            error = [None]
+            done = [False]
+
+            def _fetch():
+                try:
+                    result[0] = ak.stock_financial_analysis_indicator(symbol=code, start_year=str(min_year))
+                except Exception as e:
+                    error[0] = e
+                finally:
+                    done[0] = True
+
+            t = threading.Thread(target=_fetch, daemon=True)
+            t.start()
+            t.join(timeout=120)  # 120秒超时
+
+            if not done[0]:
+                print(f"  [fin_indicator] {code} 请求超时（>120s），跳过")
+                self._failed_fin_indicator.add(code)
+                return 0
+            if error[0]:
+                print(f"  [fin_indicator] {code} error: {error[0]}")
+                self._failed_fin_indicator.add(code)
+                return 0
+
+            df = result[0]
+            if df is None or df.empty:
                 print(f"  [fin_indicator] {code} no data")
+                self._failed_fin_indicator.add(code)
                 return 0
             df["日期_dt"] = pd.to_datetime(df["日期"])
             df["year"] = df["日期_dt"].dt.year
@@ -400,13 +433,15 @@ class StatementDownload:
             return count
         except Exception as e:
             print(f"  [fin_indicator] {code} error: {e}")
+            self._failed_fin_indicator.add(code)
             return 0
 
-        # ═══════════════════════════════════════
+            # ═══════════════════════════════════════
     #  按需下载（单只股票，快速）
     # ═══════════════════════════════════════
 
     _downloaded_stocks = set()  # 类级别缓存，避免重复下载同一只股票
+    _failed_fin_indicator = set()  # 类级别缓存，记录下载失败的股票，避免反复重试
 
     def _auto_download_stock(self, code: str, years):
         """查询单只股票数据为空时，按需下载该股票的财报数据。

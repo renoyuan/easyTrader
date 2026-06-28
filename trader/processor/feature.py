@@ -312,8 +312,33 @@ class StockFeatureProcessor:
 
         try:
             import akshare as ak
-            df = ak.stock_value_em(symbol=code)
-            if df.empty:
+            # 超时保护：akshare 底层 httpx 可能永久阻塞
+            import threading
+            result = [None]
+            error = [None]
+            done = [False]
+
+            def _fetch():
+                try:
+                    result[0] = ak.stock_value_em(symbol=code)
+                except Exception as e:
+                    error[0] = e
+                finally:
+                    done[0] = True
+
+            t = threading.Thread(target=_fetch, daemon=True)
+            t.start()
+            t.join(timeout=60)  # 60秒超时
+
+            if not done[0]:
+                print(f"  ⚠️ {code} 估值请求超时（>60s），跳过")
+                return None, None
+            if error[0]:
+                print(f"  ⚠️ {code} 估值请求异常: {error[0]}")
+                return None, None
+
+            df = result[0]
+            if df is None or df.empty:
                 return None, None
 
             pe = df["PE(TTM)"].dropna()

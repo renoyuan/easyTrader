@@ -436,18 +436,17 @@ class BacktestEngine:
                        filter_result: FilterResult,
                        context: Dict[str, Any]) -> bool:
         """执行开仓，返回是否成功开仓"""
-        # [建议] 计算开仓数量
-        position_value = self.capital * self.fixed_position_ratio
-        quantity = int(position_value / tick.close / 100) * 100  # 按手
+        # [建议] 计算开仓数量（预留费用空间）
+        available = self.capital * self.fixed_position_ratio
+        # 先假设费率，确保总金额不超过可用资金
+        estimated_fee_rate = self.commission_pct + self.slippage_pct + self.stamp_tax_pct
+        max_buy = available / (1 + estimated_fee_rate)
+        quantity = int(max_buy / tick.close / 100) * 100  # 按手取整
         if quantity <= 0:
             return False
 
         cost = quantity * tick.close
         fee = cost * (self.commission_pct + self.slippage_pct)
-
-        if cost + fee > self.capital:
-            # 资金不足
-            return False
 
         self.capital -= (cost + fee)
 

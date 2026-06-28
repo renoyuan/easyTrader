@@ -80,6 +80,7 @@ class BacktestPanel:
         # 时间止损（最大持股时间）
         self._risk_ts_enabled = True
         self._risk_ts_max_bars = 60
+        self._risk_bs_enabled = True  # 黑天鹅默认开启
 
         # ── 回测标签页 ──
         self.tab = tk.Frame(notebook, bg=COLOR_CARD_BG)
@@ -190,10 +191,7 @@ class BacktestPanel:
                            side=tk.LEFT, padx=(4, 0))
 
         self._bs_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(row3, text="黑天鹅", variable=self._bs_var,
-                       bg=COLOR_BG, font=("微软雅黑", 9),
-                       fg=COLOR_TEXT, selectcolor=COLOR_BG).pack(
-                           side=tk.LEFT, padx=(6, 0))
+        # 黑天鹅移入止盈止损弹窗，此处不再显示
 
         self._daily_log_var = tk.BooleanVar(value=True)
         tk.Checkbutton(row3, text="日志", variable=self._daily_log_var,
@@ -324,7 +322,7 @@ class BacktestPanel:
 
         scorer_name = self._scorer_var.get()
         enable_filter = self._filter_var.get()
-        enable_bs = self._bs_var.get()
+        enable_bs = getattr(self, '_risk_bs_enabled', True)
         enable_daily_log = self._daily_log_var.get()
 
         # ── 风控参数（从独立配置中读取） ──
@@ -793,6 +791,8 @@ class BacktestPanel:
             min_score_val = self._min_score_var.get().strip() if hasattr(self, '_min_score_var') else "80"
             if score > 0 and score < float(min_score_val):
                 reason_short = f"评分{score}<阈值{min_score_val}"
+            elif info.get("open_skipped_reason", ""):
+                reason_short = info["open_skipped_reason"]
             elif info.get("signal_reason", ""):
                 reason_short = info["signal_reason"]
             elif info.get("signal_triggered", False) and not info.get("filter_passed", False):
@@ -867,6 +867,16 @@ class BacktestPanel:
                  font=("微软雅黑", 9), fg=COLOR_TEXT).pack(side=tk.LEFT)
         tk.Label(row_sl2, text="  (越大越宽松)", bg=COLOR_CARD_BG,
                  font=("微软雅黑", 8), fg=COLOR_TEXT_SECONDARY).pack(side=tk.LEFT)
+
+        # ATR 动态止损
+        row_sl3 = tk.Frame(sl_frame, bg=COLOR_CARD_BG)
+        row_sl3.pack(fill=tk.X, pady=3)
+
+        self._risk_bs_enabled_var = tk.BooleanVar(value=self._risk_bs_enabled if hasattr(self, '_risk_bs_enabled') else True)
+        tk.Checkbutton(row_sl3, text="启用黑天鹅保护（单日跌超10%/大盘跌超5%/跳空击穿→市价平仓）",
+                       variable=self._risk_bs_enabled_var,
+                       bg=COLOR_CARD_BG, font=("微软雅黑", 9),
+                       fg=COLOR_TEXT, selectcolor=COLOR_CARD_BG).pack(side=tk.LEFT)
 
                 # ── 分隔线 ──
         ttk.Separator(win, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=15, pady=6)
@@ -1022,6 +1032,10 @@ class BacktestPanel:
             self._risk_ts_enabled = self._risk_ts_enabled_var.get()
             self._risk_ts_max_bars = self._risk_ts_max_bars_var.get()
 
+            # 黑天鹅
+            if hasattr(self, '_risk_bs_enabled_var'):
+                self._risk_bs_enabled = self._risk_bs_enabled_var.get()
+
             # 更新状态标签
             self._update_risk_status()
 
@@ -1044,7 +1058,8 @@ class BacktestPanel:
         mode_text = "分级" if self._risk_sp_mode == "graded" else "目标价"
         atr_text = f"+ATR{self._risk_sl_atr_multiplier:.1f}倍" if self._risk_sl_atr_enabled else ""
         ts_text = f" 持股≤{self._risk_ts_max_bars}天" if self._risk_ts_enabled else ""
-        status = f"止盈:{mode_text} 止损:{self._risk_sl_fixed_ratio:.0%}{atr_text}{ts_text}"
+        bs_text = "" if getattr(self, '_risk_bs_enabled', True) else " 黑天鹅关"
+        status = f"止盈:{mode_text} 止损:{self._risk_sl_fixed_ratio:.0%}{atr_text}{ts_text}{bs_text}"
         self._risk_status_var.set(status)
 
     # ═══════════════════════════════════════════
