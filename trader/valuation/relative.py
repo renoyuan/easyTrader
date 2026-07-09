@@ -244,39 +244,119 @@ class RelativeValuation:
     # ════════════════════════════════════
 
     def _get_current_price_pe(self, code: str) -> Tuple[Optional[float], Optional[float]]:
-        """获取当前股价和PE，优先从valuation表，回退到akshare实时拉取"""
-        from trader.db.orm import Valuation
-        try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            row = self.session.query(Valuation).filter(
-                Valuation.code == code,
-                Valuation.trade_date == today,
-            ).first()
-            if not row:
-                row = self.session.query(Valuation).filter(
-                    Valuation.code == code
-                ).order_by(Valuation.trade_date.desc()).first()
-
-            current_pe = float(row.pe) if row and row.pe else None
-            current_pb = float(row.pb) if row and row.pb else None
-        except Exception:
-            current_pe = None
-            current_pb = None
-
-        # 从 K线表获取最新收盘价
+        """获取当前股价和PE，优先从K线表/valuation表，最后用HTTP直连新浪/东方财富实时拉取"""
+        # 1. 从 K线表获取最新收盘价
         current_price = self._get_latest_close(code)
 
-        # 回退：如果K线没有，用 akshare 实时拉
+        # 2. 从 valuation 表获取 PE
+        from trader.db.orm import Valuation
+        current_pe = None
+        try:
+            row = self.session.query(Valuation).filter(
+                Valuation.code == code
+            ).order_by(Valuation.trade_date.desc()).first()
+            current_pe = float(row.pe) if row and row.pe else None
+        except Exception:
+            pass
+
+        # 3. 如果价格或PE没有取到，用 HTTP 直连多源 API 实时拉取
+        if current_price is None or current_pe is None:
+            # 3a. 东方财富API
+            em_price, em_pe = self._fetch_realtime_from_eastmoney(code)
+            if current_price is None and em_price is not None:
+                current_price = em_price
+            if current_pe is None and em_pe is not None:
+                current_pe = em_pe
+
+        if current_price is None or current_pe is None:
+            # 3b. 新浪API（只有价格）
+            sina_price = self._fetch_realtime_from_sina(code)
+            if current_price is None and sina_price is not None:
+                current_price = sina_price
+
+        # 4. 最后尝试 akshare 日K线
         if current_price is None:
-            try:
-                import akshare as ak
-                df = ak.stock_individual_info_em(symbol=code)
-                if not df.empty:
-                    current_price = float(df[df["item"] == "最新价"]["value"].iloc[0])
-            except Exception:
-                pass
+            current_price = self._fetch_price_from_akshare_kline(code)
 
         return current_price, current_pe
+
+    @staticmethod
+    def _fetch_realtime_from_eastmoney(code: str) -> Tuple[Optional[float], Optional[float]]:
+        """用东方财富 HTTP API 直连获取股价和PE"""
+        import requests as _req
+        price, pe = None, None
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://quote.eastmoney.com/",
+        }
+        secid = "1." + code if code.startswith("6") else "0." + code
+        url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={secid}&fields=f43,f162"
+        try:
+            resp = _req.get(url, headers=headers, timeout=3)
+            if resp.status_code == 200:
+                data = resp.json().get("data")
+                if data:
+                    if data.get("f43") is not None:
+                        price = float(data["f43"]) / 100.0 if data["f43"] > 1000 else float(data["f43"])
+                    if data.get("f162") is not None and data["f162"] > 0:
+                        pe = float(data["f162"]) / 100.0
+        except Exception:
+            pass
+        return price, pe
+
+    @staticmethod
+    def _fetch_realtime_from_sina(code: str) -> Optional[float]:
+        """用新浪财经 HTTP API 实时拉取股价"""
+        import requests as _req
+        price = None
+        prefix = "sh" if code.startswith("6") else "sz" if code.startswith(("0", "3")) else "bj"
+        url = f"https://hq.sinajs.cn/list={prefix}{code}"
+        headers = {
+            "Referer": "https://finance.sina.com.cn",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        }
+        try:
+            resp = _req.get(url, headers=headers, timeout=3)
+            resp.encoding = "gbk"
+            text = resp.text.strip()
+            if text and text.startswith("var"):
+                parts = text.split('"')
+                if len(parts) >= 2:
+                    data = parts[1].split(",")
+                    if len(data) >= 4:
+                        if data[3]:
+                            try:
+                                price = float(data[3])
+                            except ValueError:
+                                pass
+                        if price is None and data[2]:
+                            try:
+                                price = float(data[2])
+                            except ValueError:
+                                pass
+        except Exception:
+            pass
+        return price
+
+    @staticmethod
+    def _fetch_price_from_akshare_kline(code: str) -> Optional[float]:
+        """用 akshare 日K线获取最新收盘价"""
+        try:
+            import akshare as ak
+            from datetime import timedelta
+            end = datetime.now()
+            start = end - timedelta(days=15)
+            df = ak.stock_zh_a_daily(
+                symbol=code,
+                start_date=start.strftime("%Y%m%d"),
+                end_date=end.strftime("%Y%m%d"),
+                adjust="qfq"
+            )
+            if df is not None and not df.empty:
+                return float(df.iloc[-1]["close"])
+        except Exception:
+            pass
+        return None
 
     def _get_latest_close(self, code: str) -> Optional[float]:
         """从 stock_kline 表获取最近收盘价"""

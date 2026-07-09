@@ -147,6 +147,20 @@ class ReviewerPanel:
                 tree_rows.append((f"📊 {name}", f"今日{today:+.2f}%", f"近周{week:+.2f}% 近3月{month3:+.2f}%"))
         self._update_tree(tree_rows)
 
+        # ── AI 市场分析 ──
+        self._info(f"\n{'='*50}")
+        self._info("🤖 DeepSeekAI 市场分析")
+        self._info(f"{'='*50}")
+        try:
+            ai = DeepSeekClient()
+            if ai.is_ready:
+                analysis = ai.analyze_market_review(indices or {}, sentiment or {}, tops or {})
+                self._info(f"\n{analysis}\n")
+            else:
+                self._info("  ⚠️ DeepSeek API Key 未配置，跳过 AI 分析\n请在设置页面配置 DeepSeek Key")
+        except Exception as e:
+            self._info(f"  ⚠️ AI 市场分析异常: {e}")
+
         self._info(f"\n{'='*50}\n")
         self._set_status("市场复盘完成", True)
         self._select_tab(0)
@@ -366,6 +380,20 @@ class ReviewerPanel:
                     self._info(f"  📉 跌幅 TOP5: （需连接东方财富数据源）")
 
             self._update_tree(tree_rows)
+
+            # ── AI 行业分析 ──
+            self._info(f"\n{'='*55}")
+            self._info("🤖 DeepSeekAI 行业分析")
+            self._info(f"{'='*55}")
+            try:
+                ai = DeepSeekClient()
+                if ai.is_ready:
+                    analysis = ai.analyze_industry_review(result)
+                    self._info(f"\n{analysis}\n")
+                else:
+                    self._info("  ⚠️ DeepSeek API Key 未配置，跳过 AI 分析\n请在设置页面配置 DeepSeek Key")
+            except Exception as e:
+                self._info(f"  ⚠️ AI 行业分析异常: {e}")
 
             self._info(f"\n{'='*55}\n")
             self._set_status("行业复盘完成", True)

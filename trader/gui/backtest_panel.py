@@ -234,6 +234,23 @@ class BacktestPanel:
                  bg=COLOR_CARD_BG, fg=COLOR_TEXT_SECONDARY,
                  font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=12)
 
+        # ── AI 分析按钮 ──
+        self._ai_btn = tk.Button(
+            btn_frame, text="🤖 AI 分析回测结果",
+            command=self._run_ai_analysis,
+            bg="#9c27b0", fg="white",
+            font=("微软雅黑", 9, "bold"),
+            relief=tk.RIDGE, bd=1, cursor="hand2",
+            padx=12, pady=4,
+            state=tk.DISABLED,
+        )
+        self._ai_btn.pack(side=tk.RIGHT, padx=(8, 0))
+
+        self._ai_status_var = tk.StringVar(value="")
+        tk.Label(btn_frame, textvariable=self._ai_status_var,
+                 bg=COLOR_CARD_BG, fg=COLOR_TEXT_SECONDARY,
+                 font=("微软雅黑", 8)).pack(side=tk.RIGHT)
+
         # ── 结果展示区分栏 ──
         result_pane = tk.PanedWindow(self.tab, orient=tk.VERTICAL,
                                      bg=COLOR_BG)
@@ -296,6 +313,24 @@ class BacktestPanel:
         self._trade_tree.configure(yscrollcommand=trade_vsb.set)
         self._trade_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         trade_vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # ── AI 分析展示区（初始隐藏） ──
+        self._ai_frame = tk.Frame(self.tab, bg="#f3e5f5")
+        # AI 头部
+        ai_header_row = tk.Frame(self._ai_frame, bg="#f3e5f5")
+        ai_header_row.pack(fill=tk.X, padx=10, pady=(6, 0))
+        tk.Label(ai_header_row, text="🤖 AI 回测分析点评",
+                 bg="#f3e5f5", fg="#4a148c",
+                 font=("微软雅黑", 10, "bold")).pack(side=tk.LEFT)
+        self._ai_text = tk.Text(
+            self._ai_frame, font=("微软雅黑", 10),
+            bg="#f3e5f5", fg=COLOR_TEXT,
+            wrap=tk.WORD, relief=tk.FLAT,
+            padx=6, pady=4,
+            highlightthickness=0,
+            height=10,
+        )
+        self._ai_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=(4, 6))
 
     # ═══════════════════════════════════════════
     #  回测执行
@@ -455,10 +490,69 @@ class BacktestPanel:
             self._set_status(f"✅ 回测完成: {code}", True)
             self._append_report("\n✅ 回测完成\n")
 
+            # 启用 AI 分析按钮并保存上下文
+            self._ai_code = code
+            self._ai_scorer_name = scorer_name
+            self._report_text.after(0, lambda: self._ai_btn.configure(state=tk.NORMAL))
+            self._report_text.after(0, lambda: self._ai_status_var.set("✅ 可进行 AI 分析"))
+
         except Exception as e:
             self._append_report(f"\n❌ 回测异常: {e}\n")
             traceback.print_exc()
             self._set_status(f"回测失败: {e}", False)
+
+        # ═══════════════════════════════════════════
+    #  AI 分析
+    # ═══════════════════════════════════════════
+
+    def _run_ai_analysis(self) -> None:
+        """调用 DeepSeek AI 分析回测结果"""
+        from trader.ai import DeepSeekClient
+        ai = DeepSeekClient()
+        if not ai.is_ready:
+            messagebox.showwarning(
+                "AI未配置",
+                "请先在设置页面配置 DeepSeek API Key"
+            )
+            return
+
+        if not self._last_stats:
+            self._ai_status_var.set("⚠️ 请先执行回测")
+            return
+
+        self._ai_btn.configure(state=tk.DISABLED, text="🤖 AI分析中...")
+        self._ai_status_var.set("正在调用 DeepSeek AI...")
+        threading.Thread(target=self._do_ai_analysis, args=(ai,), daemon=True).start()
+
+    def _do_ai_analysis(self, ai) -> None:
+        """在后台线程执行 AI 分析"""
+        try:
+            code = getattr(self, '_ai_code', '')
+            scorer_name = getattr(self, '_ai_scorer_name', '')
+            stats = self._last_stats
+            trades_df = self._engine.get_trades_df() if self._engine else None
+
+            analysis = ai.analyze_backtest_result(
+                code, scorer_name, stats, trades_df
+            )
+
+            # 在主线程更新 UI
+            self._report_text.after(0, lambda: self._display_ai_analysis(analysis))
+        except Exception as e:
+            err_msg = str(e)[:80]
+            self._report_text.after(0, lambda: self._ai_status_var.set(f"⚠️ {err_msg}"))
+            self._report_text.after(0, lambda: self._ai_btn.configure(
+                state=tk.NORMAL, text="🤖 AI 分析回测结果"))
+
+    def _display_ai_analysis(self, analysis: str) -> None:
+        """展示 AI 分析结果"""
+        # 显示 AI 框架
+        self._ai_frame.pack(fill=tk.BOTH, expand=False, padx=10, pady=(4, 6),
+                            before=self._report_text.master)
+        self._ai_text.delete(1.0, tk.END)
+        self._ai_text.insert(tk.END, analysis)
+        self._ai_status_var.set("✅ AI 分析完成")
+        self._ai_btn.configure(state=tk.NORMAL, text="🤖 AI 分析回测结果")
 
     # ═══════════════════════════════════════════
     #  UI 更新

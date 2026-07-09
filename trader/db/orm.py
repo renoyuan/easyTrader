@@ -309,12 +309,54 @@ def _get_db_url() -> str:
 
 
 # ── 全局 engine 和 session ──
-DB_URL = _get_db_url()
+_DB_URL = _get_db_url()
+_engine_created = False
 
-if DB_URL.startswith("sqlite"):
-    engine = create_engine(DB_URL, echo=False, future=True, connect_args={"check_same_thread": False})
-else:
-    engine = create_engine(DB_URL, echo=False, future=True, pool_pre_ping=True, pool_size=5, max_overflow=10)
+
+def _create_engine(db_url: str):
+    """创建 engine，支持自动回退"""
+    global _DB_URL
+    if db_url.startswith("sqlite"):
+        return create_engine(db_url, echo=False, future=True, connect_args={"check_same_thread": False})
+    else:
+        return create_engine(db_url, echo=False, future=True, pool_pre_ping=True, pool_size=5, max_overflow=10)
+
+
+def _try_create_engine() -> tuple:
+    """
+    尝试创建 engine，如果 MySQL 连不上则自动回退到 SQLite
+    返回: (engine, db_url, is_fallback)
+    """
+    db_url = _get_db_url()
+    is_mysql = not db_url.startswith("sqlite")
+
+    if not is_mysql:
+        return _create_engine(db_url), db_url, False
+
+    # MySQL 模式：先尝试连接，失败则回退
+    try:
+        from sqlalchemy import text as _sa_text
+        eng = _create_engine(db_url)
+        with eng.connect() as conn:
+            conn.execute(_sa_text("SELECT 1"))
+        return eng, db_url, False
+    except Exception as mysql_err:
+        import warnings
+        warnings.warn(f"MySQL 连接失败 ({mysql_err})，自动回退到 SQLite")
+        sqlite_url = _get_sqlite_url()
+        return _create_engine(sqlite_url), sqlite_url, True
+
+
+def _get_sqlite_url() -> str:
+    """获取 SQLite 连接 URL"""
+    db_file = _get_sqlite_path()
+    db_backslash = chr(92)
+    return f"sqlite:///{db_file.replace(db_backslash, '/')}"
+
+
+# 初始化 engine
+engine, DB_URL, _DB_IS_FALLBACK = _try_create_engine()
+_engine_created = True
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
@@ -323,13 +365,20 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 # 初始化数据库表
 # ==========================
 def init_db():
-    # 导入估值模型，确保 Base 注册新表
-    import trader.db.valuation_models  # noqa
-    Base.metadata.create_all(engine)
+    """初始化数据库表，失败时静默处理"""
+    try:
+        import trader.db.valuation_models  # noqa
+        Base.metadata.create_all(engine)
+    except Exception as e:
+        import warnings
+        warnings.warn(f"数据库建表失败: {e}")
 
 
 # 模块导入时自动建表
-init_db()
+try:
+    init_db()
+except Exception:
+    pass
 
 
 if __name__ == "__main__":
